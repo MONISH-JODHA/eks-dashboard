@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+
+{% block title %}EKS Dashboard Overview{% endblock %}
+
+{% block head_extra %}
+    {# Chart.js CDN for visualizations #}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+{% endblock %}
+
+{% block content %}
+    <h2 class="page-title">Dashboard</h2>
+    <p class="page-subtitle">
+        {% if fetch_errors %}
+            Data may be incomplete due to fetching errors.
+        {% else %}
+            Overview of your Amazon EKS clusters.
+        {% endif %}
+        Last refreshed on {{ request.state.now.strftime('%b %d, %Y, %I:%M:%S %p %Z') if request.state.now else 'N/A' }}.
+    </p>
+
+    {% if fetch_errors %}
+        <div class="error-message-box">
+            <strong>Data Fetching Errors:</strong>
+            <ul>
+                {% for error_msg in fetch_errors %}
+                    <li>{{ error_msg }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <h3 class="section-title">Quick info about your clusters</h3>
+    <div class="quick-info-grid">
+        <div class="info-box">
+            <div class="value">{{ quick_info.clusters_with_health_issues | default(0) }}</div>
+            <div class="label">Clusters with health issues</div>
+        </div>
+        <div class="info-box">
+            <div class="value">{{ quick_info.clusters_with_upgrade_insights_attention | default(0) }}</div>
+            <div class="label">Clusters needing upgrade attention</div>
+        </div>
+        <div class="info-box">
+            <div class="value">{{ quick_info.clusters_nearing_eol_90_days | default(0) }}</div>
+            <div class="label">Clusters nearing EOL (90 days)</div>
+        </div>
+        <div class="info-box">
+            <div class="value">{{ quick_info.kubernetes_clusters_count | default(0) }}</div>
+            <div class="label">Kubernetes clusters</div>
+        </div>
+        <div class="info-box">
+            <div class="value">{{ quick_info.accounts_running_kubernetes_clusters | default(0) }}</div>
+            <div class="label">Accounts running clusters</div>
+        </div>
+        <div class="info-box">
+            <div class="value">{{ quick_info.regions_running_kubernetes_clusters | default(0) }}</div>
+            <div class="label">Regions running clusters</div>
+        </div>
+        <div class="info-box">
+            <div class="value">{{ quick_info.total_nodegroups | default(0) }}</div>
+            <div class="label">Total Node Groups</div>
+        </div>
+        <div class="info-box">
+            <div class="value">{{ quick_info.active_nodegroups | default(0) }}</div>
+            <div class="label">Active Node Groups</div>
+        </div>
+         <div class="info-box">
+            <div class="value">{{ quick_info.organizational_units_running_kubernetes_clusters | default(0) }}</div>
+            <div class="label">Organizational Units (Mocked)</div>
+        </div>
+    </div>
+
+    {# --- Row 1 of Analytics Charts --- #}
+    <div class="widget-grid">
+        <div class="widget">
+            <div class="widget-header"><h2>Top Accounts by Number of Clusters</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="accountChart"></canvas></div></div>
+        </div>
+        <div class="widget">
+            <div class="widget-header"><h2>Top Organizational Units by Number of Clusters</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="ouChart"></canvas></div></div>
+        </div>
+    </div>
+
+    {# --- Row 2 of Analytics Charts --- #}
+    <div class="widget-grid">
+        <div class="widget">
+            <div class="widget-header"><h2>Top Regions by Number of Clusters</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="regionChart"></canvas></div></div>
+        </div>
+        <div class="widget">
+            <div class="widget-header"><h2>Clusters by Kubernetes Version</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="versionChart"></canvas></div></div>
+        </div>
+    </div>
+
+    {# --- Row 3 of Analytics Charts --- #}
+    <div class="widget-grid">
+        <div class="widget">
+            <div class="widget-header"><h2>Clusters by Upgrade Policy</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="upgradePolicyChart"></canvas></div></div>
+        </div>
+        <div class="widget">
+            <div class="widget-header"><h2>Clusters Scheduled for End-of-Support Auto Upgrade</h2></div>
+            <div class="widget-content">
+                <p class="text-muted" style="font-size: 12px; text-align:left; margin-bottom:10px;">Shows clusters nearing EOL in next 90 days vs others.</p>
+                <div class="chart-container"><canvas id="eolScheduleChart"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    {# --- Row 4 of Analytics Charts --- #}
+    <div class="widget-grid">
+        <div class="widget">
+            <div class="widget-header"><h2>Cluster Health Status Distribution</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="healthStatusChart"></canvas></div></div>
+        </div>
+        <div class="widget">
+            <div class="widget-header"><h2>Extended Support Cost Projection (Mocked)</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="extendedSupportCostChart"></canvas></div></div>
+        </div>
+    </div>
+
+    {# --- Row 5 of Analytics Charts --- #}
+    <div class="widget-grid">
+        <div class="widget">
+            <div class="widget-header"><h2>Clusters by Upgrade Insight Status</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="upgradeInsightChart"></canvas></div></div>
+        </div>
+        <div class="widget">
+            <div class="widget-header"><h2>Clusters by Provider Type</h2></div>
+            <div class="widget-content"><div class="chart-container"><canvas id="providerTypeChart"></canvas></div></div>
+        </div>
+    </div>
+
+
+    {# --- All Clusters Table --- #}
+    <div class="widget">
+        <div class="widget-header">
+             <h2>All Clusters ({{ clusters | length if clusters else 0 }})</h2>
+        </div>
+        <div class="widget-content">
+            {% if clusters and clusters | length > 0 %}
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Account ID</th>
+                            <th>Version</th>
+                            <th>Platform Ver.</th>
+                            <th>Status</th>
+                            <th>Region</th>
+                            <th>Created</th>
+                            <th>Health</th>
+                            <th>Upgrade Insight</th>
+                            <th>Node Groups</th>
+                            <th>Tags</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cluster in clusters %}
+                        <tr>
+                            <td>{{ cluster.name | default('N/A') }}</td>
+                            <td>{{ cluster.account_id | default('N/A') }}</td>
+                            <td>{{ cluster.version | default('N/A') }}</td>
+                            <td>{{ cluster.platformVersion | default('N/A') }}</td>
+                            <td class="status-{{ cluster.status.lower() if cluster.status else 'unknown' }}">{{ cluster.status | default('N/A') }}</td>
+                            <td>{{ cluster.region | default('N/A') }}</td>
+                            <td>
+                                {% if cluster.createdAt is string %}
+                                    {{ cluster.createdAt.split('T')[0] }}
+                                {% elif cluster.createdAt %}
+                                    {{ cluster.createdAt.strftime('%Y-%m-%d') }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                            <td class="health-{{ cluster.health_status_summary.lower().replace(' ', '_') if cluster.health_status_summary else 'unknown' }}">
+                                {{ cluster.health_status_summary | default('N/A') }}
+                                {% if cluster.health_issues and cluster.health_issues | length > 0 %}
+                                    <span class="text-muted">({{ cluster.health_issues | length }})</span>
+                                {% endif %}
+                            </td>
+                            <td class="insight-{{ cluster.upgrade_insight_status.lower().replace('_', '-') if cluster.upgrade_insight_status else 'unknown' }}">
+                                {{ cluster.upgrade_insight_status | default('N/A') | replace('_', ' ') | title }}
+                            </td>
+                            <td>
+                                {{ cluster.nodegroups_data | length if cluster.nodegroups_data else 0 }}
+                            </td>
+                            <td class="tags-container">
+                                {% if cluster.tags and cluster.tags | length > 0 %}
+                                    {% for key, value in cluster.tags.items() %}
+                                        <span class="tag">{{ key }}: {{ value }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="no-tags">None</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">No EKS clusters found in the configured AWS account and regions, or an error occurred.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {# --- Node Groups Overview Table --- #}
+    <div class="widget">
+        <div class="widget-header">
+             <h2>Node Groups Overview</h2>
+        </div>
+        <div class="widget-content">
+            {% set all_nodegroups = [] %}
+            {% if clusters %}
+                {% for cluster in clusters %}
+                    {% if cluster.nodegroups_data and cluster.nodegroups_data | length > 0 %}
+                        {% for ng in cluster.nodegroups_data %}
+                            {% set _ = ng.update({'cluster_name': cluster.name, 'cluster_region': cluster.region, 'cluster_account_id': cluster.account_id}) %}
+                            {% set _ = all_nodegroups.append(ng) %}
+                        {% endfor %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+
+            {% if all_nodegroups | length > 0 %}
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Node Group Name</th>
+                            <th>Cluster</th>
+                            <th>Account ID</th>
+                            <th>Region</th>
+                            <th>Status</th>
+                            <th>Desired Size</th>
+                            <th>AMI Type</th>
+                            <th>Instance Types</th>
+                            <th>K8s Version (Nodes)</th>
+                            <th>AMI Release</th>
+                            <th>Created</th>
+                            <th>Tags</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ng in all_nodegroups %}
+                        <tr>
+                            <td>{{ ng.name | default('N/A') }}</td>
+                            <td>{{ ng.cluster_name | default('N/A') }}</td>
+                            <td>{{ ng.cluster_account_id | default('N/A') }}</td>
+                            <td>{{ ng.cluster_region | default('N/A') }}</td>
+                            <td class="status-{{ ng.status.lower() if ng.status else 'unknown' }}">{{ ng.status | default('N/A') }}</td>
+                            <td>{{ ng.desiredSize | default('N/A') }}</td>
+                            <td>{{ ng.amiType | default('N/A') }}</td>
+                            <td>{{ ng.instanceTypes | join(', ') if ng.instanceTypes else 'N/A' }}</td>
+                            <td>{{ ng.version | default('N/A') }}</td>
+                            <td>{{ ng.releaseVersion | default('N/A') }}</td>
+                            <td>
+                                {% if ng.createdAt is string %}
+                                    {{ ng.createdAt.split('T')[0] }}
+                                {% elif ng.createdAt %}
+                                    {{ ng.createdAt.strftime('%Y-%m-%d') }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                            <td class="tags-container">
+                                {% if ng.tags and ng.tags | length > 0 %}
+                                    {% for key, value in ng.tags.items() %}
+                                        <span class="tag">{{ key }}: {{ value }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="no-tags">None</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">No managed node groups found across the configured clusters.</p>
+            {% endif %}
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const commonBarChartOptions = {
+                responsive: true, maintainAspectRatio: false, indexAxis: 'x',
+                scales: {
+                    y: { beginAtZero: true, ticks: { stepSize: 1, color: '#aab7b8' }, grid: { color: '#3b4149' } },
+                    x: { ticks: { color: '#aab7b8' }, grid: { display: false } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { backgroundColor: '#2d3748', titleColor: '#e2e8f0', bodyColor: '#cbd5e0', borderColor: '#4a5568', borderWidth: 1 }
+                }
+            };
+            const commonDoughnutChartOptions = {
+                 responsive: true, maintainAspectRatio: false,
+                 plugins: {
+                     legend: { position: 'right', labels: { color: '#aab7b8' } }
+                 }
+            };
+            
+            function getTopNData(dataObject, topN = 10, unknownLabel = "Unknown") {
+                if (!dataObject || Object.keys(dataObject).length === 0) return { labels: [], data: [], originalData: {} };
+                const sortedEntries = Object.entries(dataObject).sort(([, a], [, b]) => b - a);
+                const topEntries = sortedEntries.slice(0, topN);
+                return {
+                    labels: topEntries.map(entry => (entry[0] === "UnknownAccount" || entry[0] === "UnknownRegion" || entry[0] === "UnknownVersion" || entry[0] === "UNKNOWN" || entry[0] === "No Data") ? unknownLabel : entry[0]),
+                    data: topEntries.map(entry => entry[1]),
+                    originalData: dataObject
+                };
+            }
+            
+            const chartColors = [
+                'rgba(82, 200, 240, 0.7)', 'rgba(255, 159, 64, 0.7)', 'rgba(26, 178, 131, 0.7)',
+                'rgba(255, 99, 132, 0.7)', 'rgba(153, 102, 255, 0.7)', 'rgba(255, 205, 86, 0.7)',
+                'rgba(75, 192, 192, 0.7)'
+            ];
+
+            function initializeChart(canvasId, chartType, rawData, options, colorPaletteOrIndex, topN, unknownLabel, chartLabel = 'Count') {
+                const chartCanvas = document.getElementById(canvasId);
+                const chartWidgetContent = chartCanvas ? chartCanvas.closest('.widget-content') : null;
+                if (!chartCanvas || !chartWidgetContent) {
+                    // console.warn(`Canvas or widget content not found for ${canvasId}`); // Optional: for debugging
+                    if(chartWidgetContent) chartWidgetContent.innerHTML = `<p class="text-muted">Chart canvas '${canvasId}' not found.</p>`;
+                    return;
+                }
+
+                let chartDataProcessed;
+                if (chartType === 'bar' || chartType === 'line') {
+                    chartDataProcessed = getTopNData(rawData, topN, unknownLabel);
+                } else { 
+                    chartDataProcessed = {
+                        labels: Object.keys(rawData || {}).sort(),
+                        data: Object.keys(rawData || {}).sort().map(key => rawData[key]),
+                        originalData: rawData
+                    };
+                }
+                
+                if (chartDataProcessed.labels.length > 0 && !(chartDataProcessed.labels.length === 1 && chartDataProcessed.labels[0] === unknownLabel && chartDataProcessed.data[0] === 0) ) {
+                    let datasetOptions = {};
+                    if (chartType === 'bar') {
+                        datasetOptions = {
+                            backgroundColor: chartColors[colorPaletteOrIndex % chartColors.length],
+                            borderColor: chartColors[colorPaletteOrIndex % chartColors.length].replace('0.7', '1'),
+                            borderWidth: 1, barPercentage: 0.6, categoryPercentage: 0.7
+                        };
+                    } else if (chartType === 'doughnut' || chartType === 'pie') {
+                        datasetOptions = {
+                            backgroundColor: Array.isArray(colorPaletteOrIndex) ? colorPaletteOrIndex : chartColors,
+                            borderColor: '#232f3e', borderWidth: 2
+                        };
+                    } else if (chartType === 'line') {
+                         datasetOptions = {
+                            borderColor: chartColors[colorPaletteOrIndex % chartColors.length],
+                            backgroundColor: chartColors[colorPaletteOrIndex % chartColors.length].replace('0.7','0.2'),
+                            tension: 0.1, fill: true
+                        };
+                    }
+
+                    new Chart(chartCanvas, {
+                        type: chartType,
+                        data: {
+                            labels: chartDataProcessed.labels,
+                            datasets: [{
+                                label: chartLabel,
+                                data: chartDataProcessed.data,
+                                ...datasetOptions
+                            }]
+                        },
+                        options: options
+                    });
+                } else {
+                    chartWidgetContent.innerHTML = `<p class="text-muted">No data available for ${canvasId.replace('Chart','')} chart.</p>`;
+                }
+            }
+
+            // --- Initialize Charts ---
+            // Row 1
+            initializeChart('accountChart', 'bar', {{ clusters_by_account_count | tojson | safe if clusters_by_account_count else '{}' }}, commonBarChartOptions, 0, 10, "Unknown Account", "Clusters");
+            initializeChart('ouChart', 'bar', {{ clusters_by_ou_count | tojson | safe if clusters_by_ou_count else '{}' }}, commonBarChartOptions, 1, 10, "Unknown OU", "Clusters");
+            
+            // Row 2
+            initializeChart('regionChart', 'bar', {{ clusters_by_region_count | tojson | safe if clusters_by_region_count else '{}' }}, commonBarChartOptions, 2, 10, "Unknown Region", "Clusters");
+            const versionDataRaw = {{ clusters_by_version_count | tojson | safe if clusters_by_version_count else '{}' }};
+            initializeChart('versionChart', 'bar', versionDataRaw, commonBarChartOptions, 3, Object.keys(versionDataRaw || {}).length || 1, "Unknown Version", "Clusters");
+
+            // Row 3 - New set
+            const upgradePolicyColors = [chartColors[4], chartColors[5], chartColors[6]];
+            initializeChart('upgradePolicyChart', 'doughnut', {{ clusters_by_upgrade_policy_count | tojson | safe if clusters_by_upgrade_policy_count else '{}' }}, commonDoughnutChartOptions, upgradePolicyColors, null, null, "Clusters");
+            initializeChart('eolScheduleChart', 'bar', {{ clusters_eol_schedule_count | tojson | safe if clusters_eol_schedule_count else '{}' }}, commonBarChartOptions, 4, 2, "Status", "Clusters");
+
+            // Row 4 - New set
+            const healthStatusColors = [chartColors[2], chartColors[3], chartColors[1]]; // Green, Orange, Grey for UNKNOWN
+            initializeChart('healthStatusChart', 'doughnut', {{ clusters_by_health_status_count | tojson | safe if clusters_by_health_status_count else '{}' }}, commonDoughnutChartOptions, healthStatusColors, null, null, "Clusters");
+            
+            const costProjectionData = {{ extended_support_cost_projection_data | tojson | safe if extended_support_cost_projection_data else '{}' }};
+            const extendedSupportCostCanvas = document.getElementById('extendedSupportCostChart');
+            const extendedSupportCostWidgetContent = extendedSupportCostCanvas ? extendedSupportCostCanvas.closest('.widget-content') : null;
+            if (extendedSupportCostCanvas && costProjectionData.labels && costProjectionData.labels.length > 0 && costProjectionData.projected_costs_usd.some(cost => cost > 0)) { // only render if some cost > 0
+                 new Chart(extendedSupportCostCanvas, {
+                    type: 'line',
+                    data: {
+                        labels: costProjectionData.labels,
+                        datasets: [{
+                            label: 'Projected Cost (USD)',
+                            data: costProjectionData.projected_costs_usd,
+                            borderColor: chartColors[5],
+                            backgroundColor: chartColors[5].replace('0.7','0.2'),
+                            tension: 0.1, fill: true
+                        }]
+                    },
+                    options: { ...commonBarChartOptions, 
+                        scales: {
+                            ...commonBarChartOptions.scales,
+                            y: { ...commonBarChartOptions.scales.y, ticks: { callback: function(value) { return '$' + value.toFixed(2); } } }
+                        }
+                     }
+                });
+            } else if (extendedSupportCostWidgetContent) {
+                extendedSupportCostWidgetContent.innerHTML = `<p class="text-muted">No cost projection data available.</p>`;
+            }
+
+            // Row 5 - New set
+            const upgradeInsightDataRaw = {{ clusters_by_upgrade_insight_count | tojson | safe if clusters_by_upgrade_insight_count else '{}' }};
+            initializeChart('upgradeInsightChart', 'bar', upgradeInsightDataRaw, commonBarChartOptions, 6, Object.keys(upgradeInsightDataRaw || {}).length || 1, "Unknown", "Clusters");
+            
+            const providerTypeColors = [chartColors[0]];
+            initializeChart('providerTypeChart', 'doughnut', {{ clusters_by_provider_type_count | tojson | safe if clusters_by_provider_type_count else '{}' }}, commonDoughnutChartOptions, providerTypeColors, null, null, "Clusters");
+
+        });
+    </script>
+{% endblock %}
