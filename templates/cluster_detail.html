@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block title %}Cluster Details: {{ cluster.name }}{% endblock %}
+{% block page_title %}Cluster Details{% endblock %}
+
+{% block content %}
+    <a href="{{ url_for('read_dashboard') }}" class="back-link"><i data-feather="arrow-left"></i> Back to Dashboard</a>
+    <h2 class="cluster-detail-title">{{ cluster.name or "Unknown Cluster" }}</h2>
+
+    {% if errors %}
+        <div class="error-message-box">
+            <strong>Error fetching cluster details:</strong>
+            <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+        </div>
+    {% else %}
+    <div class="tab-container">
+        <div class="tab-nav">
+            <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
+            <button class="tab-link" onclick="openTab(event, 'nodegroups')"><i data-feather="hard-drive"></i>Compute</button>
+            <button class="tab-link" onclick="openTab(event, 'logs')"><i data-feather="file-text"></i>Logs</button>
+            <button class="tab-link" onclick="openTab(event, 'security')"><i data-feather="shield"></i>Security</button>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="overview" class="tab-content active">
+            <div class="widget">
+                <div class="widget-header"><h2>Cluster Summary</h2></div>
+                <div class="widget-content">
+                    <div class="summary-grid">
+                        <div><strong>ARN:</strong> <span class="text-muted code">{{ cluster.arn }}</span></div>
+                        <div><strong>Status:</strong> <span class="status-badge status-{{ cluster.status.lower() if cluster.status else 'unknown' }}">{{ cluster.status }}</span></div>
+                        <div><strong>Region:</strong> <span class="text-muted">{{ cluster.region }}</span></div>
+                        <div><strong>Account ID:</strong> <span class="text-muted">{{ cluster.account_id }}</span></div>
+                        <div><strong>K8s Version:</strong> <span class="text-muted">{{ cluster.version }}</span></div>
+                        <div><strong>Platform Version:</strong> <span class="text-muted">{{ cluster.platformVersion }}</span></div>
+                        <div><strong>Created At:</strong> <span class="text-muted">{{ cluster.createdAt.split('T')[0] if cluster.createdAt else 'N/A' }}</span></div>
+                        <div><strong>OIDC Provider:</strong> <span class="text-muted code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="widget">
+                <div class="widget-header"><h2>Networking & Security</h2></div>
+                <div class="widget-content">
+                     <div class="summary-grid">
+                        <div><strong>VPC ID:</strong> <span class="text-muted code">{{ cluster.networking.vpcId or 'N/A' }}</span></div>
+                        <div><strong>Public Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPublicAccess else 'deleting' }}">{{ 'Enabled' if cluster.networking.endpointPublicAccess else 'Disabled' }}</span></div>
+                        <div><strong>Private Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPrivateAccess else 'deleting' }}">{{ 'Enabled' if cluster.networking.endpointPrivateAccess else 'Disabled' }}</span></div>
+                        <div><strong>Subnets:</strong> <div class="tags-container" style="margin-top: 5px;">{% for id in cluster.networking.subnetIds %}<span class="tag code">{{ id }}</span>{% else %}<span>N/A</span>{% endfor %}</div></div>
+                    </div>
+                </div>
+            </div>
+
+            {% if cluster.health_issues %}
+            <div class="widget">
+                <div class="widget-header"><h2>Health Issues</h2></div>
+                <div class="widget-content">
+                    {% for issue in cluster.health_issues %}
+                    <div class="health-issue-box">
+                        <strong class="code">{{ issue.code }}</strong>
+                        <p>{{ issue.message }}</p>
+                        <span>Resource IDs: {% for id in issue.resourceIds %}<span class="tag code">{{ id }}</span>{% endfor %}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Nodegroups Tab -->
+        <div id="nodegroups" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2>Nodegroups & Compute Nodes</h2></div>
+                <div class="widget-content">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Name</th><th>Status</th><th>Mode</th><th>Instance Type(s)</th><th>K8s Version</th><th>Action</th></tr></thead>
+                            <tbody>
+                                {% for ng in cluster.nodegroups_data %}
+                                <tr>
+                                    <td>{{ ng.name }}</td>
+                                    <td><span class="status-badge status-{{ ng.status.lower() if ng.status else 'unknown' }}">{{ ng.status }}</span></td>
+                                    <td>
+                                        {% if ng.is_karpenter_node %}
+                                            <span class="tag code">Auto Mode</span>
+                                        {% else %}
+                                            <span class="tag">Managed</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ ng.instanceTypes | join(', ') }}</td>
+                                    <td>{{ ng.version }}</td>
+                                    <td>
+                                        {% if not ng.is_karpenter_node and ng.releaseVersion and ng.version and ng.releaseVersion < ng.version %}
+                                        <button class="action-btn upgrade-btn" 
+                                                data-account-id="{{ cluster.account_id }}"
+                                                data-region="{{ cluster.region }}"
+                                                data-cluster-name="{{ cluster.name }}"
+                                                data-nodegroup-name="{{ ng.name }}">
+                                            <i data-feather="chevrons-up"></i> Upgrade Now
+                                        </button>
+                                        {% else %}
+                                        <span class="text-muted">N/A</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="6" class="text-muted" style="text-align: center;">No nodegroups or compute nodes found for this cluster.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="logs" class="tab-content">
+            <div class="widget">
+                <div class="widget-header">
+                    <h2>Control Plane Logs (Last 10 minutes)</h2>
+                    <select id="log-type-selector">
+                        <option value="api">api</option>
+                        <option value="audit">audit</option>
+                        <option value="authenticator">authenticator</option>
+                        <option value="scheduler">scheduler</option>
+                        <option value="controllerManager">controllerManager</option>
+                    </select>
+                </div>
+                <div class="widget-content">
+                    <pre id="log-output" class="log-box">Select a log type to begin streaming...</pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Insights Tab -->
+        <div id="security" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2>Security Best Practices Checklist</h2></div>
+                <div class="widget-content">
+                    {% if cluster.security_insights %}
+                    <table class="data-table security-table">
+                         <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
+                         <tbody>
+                            {% for key, insight in cluster.security_insights.items() %}
+                            <tr>
+                                <td>{{ insight.description }}</td>
+                                <td>
+                                    <span class="status-badge status-{{ 'active' if insight.status else 'failed' }}">
+                                        {{ 'Passing' if insight.status else 'Attention' }}
+                                    </span>
+                                </td>
+                                <td class="text-muted">
+                                    {% if key == 'latest_platform_version' and not insight.status %}
+                                        Current: {{ insight.current }}, Latest: {{ insight.latest }}
+                                    {% elif key == 'logging_enabled' and not insight.status %}
+                                        Missing: {{ insight.missing_logs | join(', ') }}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                         </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted">Security insights could not be generated for this cluster.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+    function openTab(evt, tabName) {
+        document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
+        document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
+        document.getElementById(tabName).style.display = 'block';
+        evt.currentTarget.classList.add('active');
+        feather.replace();
+    }
+    document.getElementById('overview').style.display = 'block';
+
+    document.addEventListener('DOMContentLoaded', () => {
+        feather.replace();
+
+        document.querySelectorAll('.upgrade-btn').forEach(button => {
+            button.addEventListener('click', async (e) => {
+                const btn = e.currentTarget;
+                if (!confirm(`Are you sure you want to upgrade nodegroup "${btn.dataset.nodegroupName}"? This will start a rolling update of the nodes.`)) return;
+
+                btn.disabled = true;
+                btn.innerHTML = '<i data-feather="loader" class="spin"></i> Upgrading...';
+                feather.replace();
+
+                const response = await fetch('/api/upgrade-nodegroup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        accountId: btn.dataset.accountId,
+                        region: btn.dataset.region,
+                        clusterName: btn.dataset.clusterName,
+                        nodegroupName: btn.dataset.nodegroupName,
+                    }),
+                });
+                
+                const result = await response.json();
+                if (response.ok) {
+                    btn.innerHTML = '<i data-feather="check-circle"></i> Initiated';
+                    alert(`Upgrade initiated successfully! Update ID: ${result.updateId}. The page will now reload to reflect the new state.`);
+                    window.location.reload();
+                } else {
+                    btn.innerHTML = '<i data-feather="alert-triangle"></i> Failed';
+                    alert(`Upgrade failed: ${result.error}`);
+                    btn.disabled = false;
+                }
+                feather.replace();
+            });
+        });
+
+        const logSelector = document.getElementById('log-type-selector');
+        const logOutput = document.getElementById('log-output');
+        let eventSource;
+
+        function startLogStream() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            logOutput.textContent = 'Connecting to log stream...';
+            const logType = logSelector.value;
+            const url = `/api/logs/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}/${logType}`;
+            
+            eventSource = new EventSource(url);
+            let firstMessage = true;
+
+            eventSource.onmessage = function(event) {
+                if (firstMessage) {
+                    logOutput.textContent = '';
+                    firstMessage = false;
+                }
+                const data = JSON.parse(event.data);
+                
+                if (data.message && logOutput.textContent.includes('Connecting')) {
+                     logOutput.textContent = data.message;
+                     if (!data.timestamp) eventSource.close(); // Close if it's a static message like "no streams found"
+                     return;
+                }
+                
+                if (data.error) {
+                    logOutput.textContent += `\n\nERROR: ${data.error}`;
+                    eventSource.close();
+                    return;
+                }
+
+                const timestamp = data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString();
+                const message = data.message || JSON.stringify(data);
+                
+                logOutput.textContent += `[${timestamp}] ${message}\n`;
+                logOutput.scrollTop = logOutput.scrollHeight;
+            };
+
+            eventSource.onerror = function() {
+                logOutput.textContent += '\n\nConnection to log stream lost or stream ended.';
+                eventSource.close();
+            };
+        }
+        
+        if(logSelector) {
+            logSelector.addEventListener('change', startLogStream);
+            // Automatically start the stream for the default selected log type when the tab is first clicked
+            const logsTabButton = document.querySelector('button[onclick*="logs"]');
+            logsTabButton.addEventListener('click', () => {
+                if (logOutput.textContent === 'Select a log type to begin streaming...') {
+                    startLogStream();
+                }
+            }, { once: true });
+        }
+    });
+</script>
+{% endblock %}

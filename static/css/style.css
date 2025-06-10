@@ -1,287 +1,522 @@
-/* eks_dashboard_flask_like/static/css/style.css */
+:root {
+    --bg-color: #0F172A; /* Slate 900 */
+    --surface-color: #1E293B; /* Slate 800 */
+    --border-color: #334155; /* Slate 700 */
+    --primary-color: #38BDF8; /* Light Blue 400 */
+    --text-primary: #F1F5F9; /* Slate 100 */
+    --text-secondary: #94A3B8; /* Slate 400 */
+    --text-muted: #64748B; /* Slate 500 */
+    
+    --status-active: #22C55E; /* Green 500 */
+    --status-updating: #F59E0B; /* Amber 500 */
+    --status-deleting: #F43F5E; /* Rose 500 */
+    --status-creating: #A78BFA; /* Violet 400 */
+    --status-failed: #EF4444; /* Red 500 */
+    --status-unknown: #64748B; /* Slate 500 */
 
-/* General Body and Typography */
+    --font-family: 'Inter', sans-serif;
+}
+
 body {
-    font-family: 'Amazon Ember', 'Helvetica Neue', Roboto, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: var(--font-family);
     margin: 0;
-    background-color: #16191f; /* Very dark background for the page itself */
-    color: #d1d9e2; /* Default light text color */
     font-size: 14px;
-    line-height: 1.5;
 }
 
-.container {
-    padding: 15px 25px; /* Standard padding */
-    max-width: 100%; /* Allow full width for dashboards */
-    margin: 0 auto;
-    box-sizing: border-box;
-}
-
-/* Header */
-header.app-header {
-    background-color: #232f3e; /* Standard AWS dark header color */
-    padding: 12px 25px;
-    border-bottom: 1px solid #3b4149;
-    margin-bottom: 20px;
+.app-container {
     display: flex;
-    align-items: center;
+    min-height: 100vh;
 }
 
-header.app-header h1 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 500;
-    color: #ffffff;
-}
-
-/* Page Titles and Subtitles */
-h2.page-title {
-    font-size: 24px;
-    font-weight: 300; /* Lighter font weight for main titles */
-    color: #ffffff;
-    margin-top: 0;
-    margin-bottom: 8px;
-}
-
-p.page-subtitle {
-    font-size: 13px;
-    color: #aab7b8;
-    margin-top: 0;
-    margin-bottom: 25px;
-}
-
-/* Error Message Styling */
-.error-message-box {
-    background-color: rgba(248, 215, 218, 0.1); /* Transparent red */
-    color: #f8d7da;
-    border: 1px solid rgba(245, 198, 203, 0.3);
-    padding: 15px;
-    border-radius: 4px;
-    margin-bottom: 20px;
-}
-
-.error-message-box strong {
-    font-weight: bold;
-}
-
-.error-message-box ul {
-    margin-top: 8px;
-    margin-bottom: 0;
-    padding-left: 20px;
-}
-
-/* Quick Info Section */
-h3.section-title {
-    font-size: 16px;
-    font-weight: 500;
-    color: #ffffff;
-    margin-top: 25px;
-    margin-bottom: 15px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #3b4149;
-}
-
-.quick-info-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); /* Adjusted minmax for more boxes */
-    gap: 15px;
-    margin-bottom: 30px;
-}
-
-.info-box {
-    background-color: #232f3e; /* Standard widget background */
-    padding: 18px;
-    border-radius: 4px;
-    border: 1px solid #3b4149; /* Subtle border */
+/* --- Sidebar --- */
+.sidebar {
+    width: 260px;
+    background-color: var(--bg-color);
+    border-right: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    justify-content: space-between; /* Pushes label to bottom if value is short */
-    min-height: 90px; /* Ensure consistent height for info boxes */
+    padding: 1.5rem 1rem;
+    flex-shrink: 0;
 }
 
+.sidebar-header h3 {
+    margin: 0 0 2rem 0;
+    padding-left: 0.5rem;
+    font-size: 1.25rem;
+    color: var(--text-primary);
+}
+
+.sidebar-nav .nav-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    transition: background-color 0.2s, color 0.2s;
+}
+.sidebar-nav .nav-item:hover {
+    background-color: var(--surface-color);
+    color: var(--text-primary);
+}
+.sidebar-nav .nav-item.active {
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+    font-weight: 600;
+}
+.sidebar-nav .nav-item i {
+    margin-right: 1rem;
+    width: 20px;
+    height: 20px;
+}
+
+.sidebar-filters {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+.filter-group .filter-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 0 0 1.5rem 0;
+}
+.filter-group label {
+    display: block;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+.filter-group select {
+    width: 100%;
+    padding: 0.6rem;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    margin-bottom: 1.25rem;
+    cursor: pointer;
+}
+#reset-filters-btn {
+    width: 100%;
+    padding: 0.75rem;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+#reset-filters-btn:hover {
+    background-color: var(--border-color);
+}
+
+
+/* --- Main Content Area --- */
+.main-content {
+    flex-grow: 1;
+    padding: 2rem 2.5rem;
+    overflow-y: auto;
+}
+
+.main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+.page-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin: 0;
+}
+.page-subtitle {
+    margin: 0 0 2rem 0;
+    color: var(--text-secondary);
+}
+.last-refreshed {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+.section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 2.5rem 0 1.5rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* --- Quick Info Grid --- */
+.quick-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1.5rem;
+}
+.info-box {
+    background-color: var(--surface-color);
+    padding: 1.5rem;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+.info-box .icon-bg {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(56, 189, 248, 0.1); /* primary-color with opacity */
+}
+.info-box .icon-bg i {
+    color: var(--primary-color);
+    width: 24px;
+    height: 24px;
+}
 .info-box .value {
-    font-size: 28px; /* Slightly smaller for more boxes */
-    font-weight: bold;
-    color: #52c8f0; /* AWS accent blue */
-    margin: 0 0 8px 0;
+    font-size: 2rem;
+    font-weight: 700;
     line-height: 1.1;
 }
-
 .info-box .label {
-    font-size: 13px;
-    color: #aab7b8; /* Lighter gray for labels */
-    margin: 0;
-    line-height: 1.3;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
 }
 
-/* Widget Grid and Individual Widgets */
-.widget-grid {
+/* --- Widgets and Charts --- */
+.widget-grid-dynamic {
     display: grid;
-    /* Adjusted for potentially 2 main widgets per row, or 1 if screen is narrower */
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 450px), 1fr));
-    gap: 20px;
-    margin-bottom: 30px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    margin-top: 2.5rem;
 }
-
-.widget { /* This applies to the full-width widgets like "All Clusters" and "Node Groups Overview" too */
-    background-color: #232f3e;
-    padding: 0; /* Padding will be on content inside */
-    border-radius: 4px;
-    border: 1px solid #3b4149;
+.widget {
+    background-color: var(--surface-color);
+    border-radius: 8px;
+    overflow: hidden;
     display: flex;
-    flex-direction: column; /* Allows header and content to stack */
-    margin-bottom: 30px; /* Added margin for full-width widgets */
+    flex-direction: column;
+    margin-top: 1.5rem;
 }
-/* Remove bottom margin from last widget to prevent double spacing if it's the last element */
-.widget:last-child {
-    margin-bottom: 0;
-}
-
-
 .widget-header {
-    padding: 15px 20px;
-    border-bottom: 1px solid #3b4149;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color);
 }
-
 .widget-header h2 {
-    font-size: 16px;
+    font-size: 1.1rem;
+    font-weight: 600;
     margin: 0;
-    color: #ffffff;
-    font-weight: 500;
 }
-
 .widget-content {
-    padding: 20px;
-    flex-grow: 1; /* Allows content to fill space if widget is in a flex row */
+    padding: 1.5rem;
+    flex-grow: 1;
 }
-.widget-content p.text-muted { /* For "No data" messages within widgets */
-    padding: 10px 0;
-    text-align: center;
-}
-
-
-/* Tables */
-.table-container {
-    overflow-x: auto; /* Allows horizontal scrolling for wide tables */
-}
-
-table.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-}
-
-table.data-table th,
-table.data-table td {
-    border-bottom: 1px solid #3b4149; /* Only bottom border for cleaner look */
-    padding: 10px 12px;
-    text-align: left;
-    vertical-align: top; /* Align content to top for multi-line cells */
-}
-table.data-table tr:first-child th,
-table.data-table tr:first-child td {
-    border-top: 1px solid #3b4149; /* Add top border to first row */
-}
-
-
-table.data-table th {
-    background-color: #2a3442; /* Slightly different header background */
-    font-weight: bold;
-    color: #c1c9d2;
-    white-space: nowrap; /* Prevent headers from wrapping */
-}
-
-table.data-table td {
-    color: #d1d9e2;
-    white-space: normal; /* Allow cell content to wrap */
-}
-table.data-table td.tags-container,
-table.data-table td:last-child { /* Give more space to tags or last column if needed */
-    min-width: 150px; /* Example: ensure tags column has some width */
-}
-
-
-table.data-table tr:hover td { /* Hover effect for rows */
-    background-color: #2a3442;
-}
-
-/* Status and Health Indicators */
-.status-active { color: #27ae60; font-weight: 500;} /* Green */
-.status-updating { color: #f39c12; font-weight: 500;} /* Orange */
-.status-creating { color: #3498db; font-weight: 500;} /* Blue */
-.status-deleting { color: #e74c3c; font-weight: 500;} /* Red */
-.status-failed { color: #c0392b; font-weight: bold;} /* Darker Red */
-.status-error_describing { color: #e74c3c; font-weight: 500; }
-.status-error_describing_nodegroup { color: #e74c3c; font-weight: 500; }
-.status-unknown { color: #95a5a6; font-style: italic; } /* Grey for unknown status */
-
-
-.health-has_issues { color: #f39c12; font-weight: 500;}
-.health-healthy { color: #27ae60; font-weight: 500;}
-.health-unknown { color: #95a5a6; font-style: italic; }
-
-.insight-needs-attention { color: #f39c12; font-weight: 500;} /* Adjusted class name from HTML */
-.insight-passing { color: #27ae60; font-weight: 500;}
-.insight-in-progress { color: #3498db; font-weight: 500;}
-.insight-error { color: #e74c3c; font-weight: 500;}
-.insight-unknown { color: #95a5a6; font-style: italic; }
-
-
-/* Tags */
-.tags-container span.tag {
-    background-color: #3e4a58;
-    color: #c1c9d2;
-    padding: 3px 8px;
-    border-radius: 3px;
-    font-size: 11px;
-    margin-right: 5px;
-    margin-bottom: 5px; /* For wrapping */
-    display: inline-block; /* For margin-bottom to work */
-    white-space: nowrap;
-    border: 1px solid #4a5766;
-}
-.tags-container span.no-tags {
-    font-style: italic;
-    color: #7f8c8d;
-}
-
-/* Chart Placeholders (if you add Chart.js) */
 .chart-container {
     position: relative;
-    min-height: 280px; /* Minimum height for charts */
+    height: 300px;
+}
+.text-muted {
+    color: var(--text-muted);
+}
+.error-message-box {
+    background-color: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    color: #F87171; /* Red 400 */
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+}
+.error-message-box ul {
+    margin: 0.5rem 0 0 0;
+    padding-left: 1.25rem;
+}
+
+/* --- Data Table --- */
+.table-container {
     width: 100%;
+    overflow-x: auto;
+}
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.data-table th, .data-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+.data-table thead th {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+.data-table tbody tr:hover {
+    background-color: var(--border-color);
+}
+.status-badge, .health-badge, .insight-badge {
+    padding: 0.25rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    display: inline-block;
+}
+.status-active, .status-badge.status-active { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
+.status-updating, .status-badge.status-updating { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
+.status-deleting, .status-badge.status-deleting { background-color: rgba(244, 63, 94, 0.2); color: var(--status-deleting); }
+.status-creating, .status-badge.status-creating { background-color: rgba(167, 139, 250, 0.2); color: var(--status-creating); }
+.status-failed, .status-badge.status-failed, .status-error_describing_cluster { background-color: rgba(239, 68, 68, 0.2); color: var(--status-failed); }
+.status-unknown, .status-badge.status-unknown { background-color: rgba(100, 116, 139, 0.2); color: var(--status-unknown); }
+
+.health-badge.health-healthy { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
+.health-badge.health-has_issues { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
+.health-badge.health-unknown { background-color: rgba(100, 116, 139, 0.2); color: var(--status-unknown); }
+
+.insight-badge.insight-passing { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
+.insight-badge.insight-needs-attention { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
+.insight-badge.insight-in-progress { background-color: rgba(167, 139, 250, 0.2); color: var(--status-creating); }
+.insight-badge.insight-error { background-color: rgba(239, 68, 68, 0.2); color: var(--status-failed); }
+
+/* --- Responsive Design --- */
+@media (max-width: 1200px) {
+    .widget-grid-dynamic {
+        grid-template-columns: 1fr;
+    }
+}
+@media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+    }
+    .sidebar {
+        width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .main-content {
+        padding: 1.5rem;
+    }
+    .page-title {
+        font-size: 1.5rem;
+    }
+}
+
+
+/* --- Add these new styles to the end of your existing style.css --- */
+
+/* --- Cluster Detail Page Specifics --- */
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+    font-weight: 500;
+}
+.back-link:hover {
+    color: var(--text-primary);
+}
+.cluster-detail-title {
+    font-size: 1.75rem;
+    margin: 0 0 2rem 0;
+}
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1rem 2rem;
+}
+.summary-grid strong {
+    color: var(--text-secondary);
+}
+.summary-grid .text-muted {
+    color: var(--text-primary);
+    margin-left: 0.5rem;
+}
+.code {
+    font-family: monospace;
+    background-color: var(--bg-color);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+.health-issue-box {
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-color);
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+}
+.health-issue-box p {
+    margin: 0.5rem 0;
+    color: var(--text-secondary);
+}
+
+/* --- General UI Enhancements --- */
+.widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.export-btn {
+    background: none;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s;
+}
+.export-btn:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+}
+.export-btn i {
+    width: 16px;
+    height: 16px;
+}
+.clickable-row {
+    cursor: pointer;
+}
+.clickable-row .row-arrow {
+    width: 16px;
+    height: 16px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    vertical-align: middle;
+    margin-left: 0.5rem;
+}
+.clickable-row:hover .row-arrow {
+    opacity: 1;
+}
+.tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.tag {
+    background-color: var(--border-color);
+    padding: 0.25rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+}
+
+
+
+/* --- Add these new styles to the end of your existing style.css --- */
+
+/* Tab Navigation */
+.tab-container { margin-top: 1.5rem; }
+.tab-nav {
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.5rem;
+    display: flex;
+}
+.tab-link {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 0.75rem 1.5rem;
+    cursor: pointer;
+    font-size: 1rem;
+    position: relative;
+    top: 1px;
+}
+.tab-link.active {
+    color: var(--primary-color);
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary-color);
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Action Buttons */
+.action-btn {
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+    border: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+.action-btn:hover { background-color: #7dd3fc; } /* light-blue-300 */
+.action-btn:disabled { background-color: var(--border-color); color: var(--text-muted); cursor: not-allowed; }
+.action-btn i { width: 16px; height: 16px; }
+
+/* Log Viewer */
+.log-box {
+    background-color: var(--bg-color);
+    color: var(--text-secondary);
+    font-family: monospace;
+    padding: 1rem;
+    height: 500px;
+    overflow-y: scroll;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+#log-type-selector {
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+}
+
+/* Security Insights Table */
+.security-table td:nth-child(2) { text-align: center; }
+
+/* Animation for loader icon */
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
+
+
+/* --- Add these new styles to the end of your existing style.css --- */
+
+/* Observability Grid */
+.observability-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+    gap: 1.5rem;
+}
+.metric-widget {
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
 }
-.chart-container canvas {
-    background-color: #232f3e;
+.metric-widget img {
+    max-width: 100%;
+    height: auto;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
 }
-.chart-container p.text-muted { /* For "No data" message in chart area */
-    padding: 0; /* Reset padding if used directly in chart container */
-    text-align:center;
-}
-
-/* Utility Classes */
-.text-muted {
-    color: #aab7b8;
-}
-.font-weight-bold {
-    font-weight: bold;
+.metric-widget .text-muted {
+    padding: 2rem;
 }
 
-/* Responsive Adjustments (Optional examples) */
-@media (max-width: 768px) {
-    .quick-info-grid {
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    }
-    .widget-grid {
-        grid-template-columns: 1fr; /* Stack widgets on smaller screens */
-    }
-    h2.page-title {
-        font-size: 20px;
-    }
-    .info-box .value {
-        font-size: 24px;
-    }
+/* Tab Icon Styling */
+.tab-link i {
+    margin-right: 0.5rem;
+    vertical-align: middle;
+    width: 18px;
+    height: 18px;
 }
