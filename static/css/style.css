@@ -1,5 +1,3 @@
---- START OF FILE style.css ---
-
 :root {
     --bg-color: #0F172A; /* Slate 900 */
     --surface-color: #1E293B; /* Slate 800 */
@@ -239,7 +237,6 @@ body {
     height: 20px;
     color: var(--text-secondary);
 }
-/* NEW STYLES for Top N filter */
 .widget-actions {
     display: flex;
     align-items: center;
@@ -318,11 +315,11 @@ body {
 .status-updating, .status-badge.status-updating { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
 .status-deleting, .status-badge.status-deleting { background-color: rgba(244, 63, 94, 0.2); color: var(--status-deleting); }
 .status-creating, .status-badge.status-creating { background-color: rgba(167, 139, 250, 0.2); color: var(--status-creating); }
-.status-failed, .status-badge.status-failed, .status-error_describing_cluster { background-color: rgba(239, 68, 68, 0.2); color: var(--status-failed); }
+.status-failed, .status-badge.status-failed, .status-badge.status-error_describing { background-color: rgba(239, 68, 68, 0.2); color: var(--status-failed); }
 .status-unknown, .status-badge.status-unknown { background-color: rgba(100, 116, 139, 0.2); color: var(--status-unknown); }
 
 .health-badge.health-healthy { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
-.health-badge.health-has-issues { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
+.health-badge.health-has_issues { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
 .health-badge.health-unknown { background-color: rgba(100, 116, 139, 0.2); color: var(--status-unknown); }
 
 .insight-badge.insight-passing { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }

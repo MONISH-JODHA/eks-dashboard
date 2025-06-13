@@ -32,7 +32,14 @@ def get_session(role_arn=None):
     Gets a boto3 session, assuming a role if one is provided.
     """
     if not role_arn:
-        return boto3.Session()
+        try:
+            # Add a check to ensure credentials are valid for the default session
+            boto3.client('sts').get_caller_identity()
+            return boto3.Session()
+        except (NoCredentialsError, PartialCredentialsError, ClientError) as e:
+            print(f"ERROR_GET_SESSION: Default credentials are not configured or invalid. Error: {e}")
+            return None
+
     try:
         sts_client = boto3.client('sts')
         session_name = f"eks-dashboard-session-{int(datetime.now(timezone.utc).timestamp())}"
@@ -104,16 +111,15 @@ def fetch_karpenter_nodes_for_cluster(cluster_name, cluster_endpoint, cluster_ca
         nodes = response.json().get('items', [])
         
         for node in nodes:
-            # Identify Karpenter nodes OR EKS cluster auto-scaling nodes (which are not in managed nodegroups)
             if 'karpenter.sh/provisioner-name' in node['metadata']['labels'] or node['metadata']['labels'].get('eks.amazonaws.com/compute-type') == 'ec2':
                 node_info = {
                     "name": node['metadata']['name'],
                     "status": "Ready" if any(c['status'] == 'True' for c in node['status']['conditions'] if c['type'] == 'Ready') else "NotReady",
                     "desiredSize": 1,
                     "instanceTypes": [node['metadata']['labels'].get('node.kubernetes.io/instance-type', 'unknown')],
-                    "amiType": "AUTO-MODE", # A unified type for non-managed nodes
+                    "amiType": "AUTO-MODE",
                     "version": node['status']['nodeInfo']['kubeletVersion'],
-                    "releaseVersion": "N/A", # Not applicable for these nodes
+                    "releaseVersion": "N/A",
                     "createdAt": datetime.fromisoformat(node['metadata']['creationTimestamp'].replace("Z", "+00:00")),
                     "is_karpenter_node": True
                 }
@@ -227,7 +233,7 @@ def stream_cloudwatch_logs(account_id, region, log_group_name, log_type_from_ui,
             for event in page['events']:
                 event_count += 1
                 yield f"data: {json.dumps(event)}\n\n"
-            time.sleep(1) # Be a good citizen
+            time.sleep(1)
 
         if event_count == 0:
             yield f"data: {json.dumps({'message': 'No new log events in the last 10 minutes.'})}\n\n"
@@ -334,11 +340,14 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
     }
 
     if with_details and eks_client:
-        # CORRECTED: Fetch and process managed and unmanaged nodes separately into a unified list
         managed_nodegroups_raw = fetch_managed_nodegroups(eks_client, c_raw["name"])
-        karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(
-            c_raw["name"], c_raw["endpoint"], c_raw["certificateAuthority"]["data"], role_arn
-        )
+        if c_raw.get("endpoint") and c_raw.get("certificateAuthority", {}).get("data"):
+            karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(
+                c_raw["name"], c_raw["endpoint"], c_raw["certificateAuthority"]["data"], role_arn
+            )
+        else:
+            karpenter_nodes_raw = []
+            print(f"Skipping Karpenter node fetch for {c_raw['name']} due to missing endpoint or CA data.")
 
         processed_nodegroups = []
         for ng in managed_nodegroups_raw:
@@ -350,7 +359,7 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
                 "is_karpenter_node": False
             })
 
-        processed_nodegroups.extend(karpenter_nodes_raw) # Karpenter nodes are already in the correct format
+        processed_nodegroups.extend(karpenter_nodes_raw)
         
         cluster_data.update({
             "nodegroups_data": processed_nodegroups,
@@ -371,25 +380,29 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
     """
     print("DEBUG_GLED: get_live_eks_data initiated.")
 
-    # --- Start of Group-Based Authentication Logic ---
-    group_to_account = {}
+    # --- Start of CORRECTED Group-Based Authentication Logic ---
+    group_to_account_list = {}
     if group_map_str:
         for mapping in group_map_str.split(','):
             try:
                 group, account_id = mapping.strip().split(':')
-                group_to_account[group.strip()] = account_id.strip()
+                group = group.strip()
+                account_id = account_id.strip()
+                if group not in group_to_account_list:
+                    group_to_account_list[group] = []
+                group_to_account_list[group].append(account_id)
             except ValueError:
                 print(f"WARNING: Invalid mapping format in GROUP_TO_ACCOUNT_MAP: '{mapping}'")
     
     accessible_accounts = set()
     if user_groups is not None:
         for group in user_groups:
-            if group in group_to_account:
-                accessible_accounts.add(group_to_account[group])
+            if group in group_to_account_list:
+                accessible_accounts.update(group_to_account_list[group])
     else:
         print("WARNING: No user groups provided, defaulting to scanning all configured accounts.")
-        if group_to_account:
-            accessible_accounts = set(group_to_account.values())
+        for acc_list in group_to_account_list.values():
+            accessible_accounts.update(acc_list)
 
     print(f"User groups received: {user_groups}")
     print(f"Accessible accounts based on map: {accessible_accounts}")
@@ -404,13 +417,16 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
                 except IndexError:
                     print(f"WARNING: Invalid Role ARN format in AWS_TARGET_ACCOUNTS_ROLES: {role_arn}")
     
-    primary_account_id = boto3.client('sts').get_caller_identity().get('Account')
-    if primary_account_id not in [acc['id'] for acc in all_possible_accounts]:
-        all_possible_accounts.append({'role_arn': None, 'id': primary_account_id})
+    try:
+        primary_account_id = boto3.client('sts').get_caller_identity().get('Account')
+        if primary_account_id not in [acc['id'] for acc in all_possible_accounts]:
+            all_possible_accounts.append({'role_arn': None, 'id': primary_account_id})
+    except (NoCredentialsError, PartialCredentialsError, ClientError) as e:
+        print(f"WARNING: Could not determine primary account ID. The 'self' account will not be scanned. Error: {e}")
 
     accounts_to_scan = [acc for acc in all_possible_accounts if acc['id'] in accessible_accounts]
 
-    if not accounts_to_scan and group_to_account: # Only return empty if auth is actually configured
+    if not accounts_to_scan and group_to_account_list:
         print("WARNING: User has access to no configured accounts. Returning empty data.")
         return {
             "clusters": [], "quick_info": {}, "errors": ["User has no access to any configured AWS accounts."],
@@ -419,7 +435,7 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
         }
 
     print(f"Final list of accounts to scan for this user: {[acc['id'] for acc in accounts_to_scan]}")
-    # --- End of Group-Based Authentication Logic ---
+    # --- End of CORRECTED Group-Based Authentication Logic ---
 
     regions_str = os.getenv("AWS_REGIONS", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
     target_regions = [r.strip() for r in regions_str.split(',') if r.strip()]

@@ -32,7 +32,7 @@
                 <h1 class="page-title">{% block page_title %}Dashboard Overview{% endblock %}</h1>
                 <div class="header-actions">
                     <!-- Add actions like 'Create Cluster' button here -->
-                    <span id="last-refreshed-time" class="last-refreshed"></span>
+                    {% comment %} <span id="last-refreshed-time" class="last-refreshed"></span> {% endcomment %}
                 </div>
             </header>
             {% block content %}{% endblock %}
