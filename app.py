@@ -1,121 +1,227 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Form, Depends
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 import os
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request as StarletteRequest
-from starlette.responses import Response as StarletteResponse, StreamingResponse
-from typing import Awaitable, Callable
-from datetime import datetime, timezone
+from starlette.responses import StreamingResponse, Response as StarletteResponse
+from urllib.parse import urlparse
 from cachetools import TTLCache
 import json
+import logging
+import uvicorn
 
+# SAML specific imports
+from onelogin.saml2.auth import OneLogin_Saml2_Auth
+from onelogin.saml2.utils import OneLogin_Saml2_Utils
+
+# Your existing data fetcher functions
 from aws_data_fetcher import (
     get_live_eks_data,
     get_single_cluster_details,
     upgrade_nodegroup_version,
-    stream_cloudwatch_logs
+    stream_cloudwatch_logs,
+    get_cluster_metrics,
 )
 
+# Load environment variables from your .env file
 load_dotenv()
 
+# --- App Initialization ---
 app = FastAPI(title="EKS Operational Dashboard")
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+# --- Middleware Setup ---
+# The order of middleware is critical. The LAST middleware added is the OUTERMOST
+# layer and runs FIRST on an incoming request.
 
-cache = TTLCache(maxsize=20, ttl=300) 
-
-class CurrentTimeMiddleware(BaseHTTPMiddleware):
-    async def dispatch(
-        self, request: StarletteRequest, call_next: Callable[[StarletteRequest], Awaitable[StarletteResponse]]
-    ) -> StarletteResponse:
-        request.state.now = datetime.now(timezone.utc)
+class UserStateMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # This is an inner middleware, so SessionMiddleware has already run.
+        request.state.user = request.session.get("user")
         response = await call_next(request)
         return response
 
-app.add_middleware(CurrentTimeMiddleware)
+# 1. Add UserStateMiddleware first, making it an INNER layer.
+app.add_middleware(UserStateMiddleware)
 
+# 2. Add SessionMiddleware second. This makes it the OUTER layer. It runs
+#    before UserStateMiddleware, populating `request.session` for it.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SECRET_KEY", "a_very_secret_key_for_dev") # Use a default for safety
+)
+
+
+# --- Static files, Templates, and Cache Setup ---
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+cache = TTLCache(maxsize=100, ttl=300)
+
+# --- SAML Helper Function ---
+async def prepare_saml_request(request: Request):
+    """Prepares the request dictionary required by the OneLogin SAML library."""
+    form_data = await request.form() if request.method == 'POST' else {}
+    base_url = os.getenv("APP_BASE_URL")
+    if not base_url:
+        base_url = str(request.base_url).rstrip('/')
+    parsed_url = urlparse(base_url)
+
+    return {
+        "http_host": parsed_url.netloc,
+        "script_name": request.url.path,
+        "server_port": str(parsed_url.port or (443 if parsed_url.scheme == 'https' else 80)),
+        "get_data": dict(request.query_params),
+        "post_data": dict(form_data),
+        "https_": "on" if parsed_url.scheme == "https" else "off",
+    }
+
+# --- Auth Dependency (Route Protector) ---
+async def get_current_user(request: Request):
+    """Dependency to protect routes by ensuring a user is logged in."""
+    if not request.state.user:
+        return RedirectResponse(url=f"/login?next={request.url.path}")
+    return request.state.user
+
+# --- Authentication Routes (SAML) ---
+
+@app.get('/login', tags=['Authentication'])
+async def saml_login(request: Request):
+    """Initiates SAML login by redirecting to the IdP."""
+    req = await prepare_saml_request(request)
+    auth = OneLogin_Saml2_Auth(req, custom_base_path=os.path.join(os.path.dirname(__file__), 'saml_config'))
+    target_url = request.query_params.get('next', '/')
+    return RedirectResponse(auth.login(return_to=target_url))
+
+@app.post('/saml/acs', tags=['Authentication'], include_in_schema=False)
+async def saml_assertion_consumer_service(request: Request):
+    """Assertion Consumer Service (ACS) endpoint for receiving SAML assertions."""
+    req = await prepare_saml_request(request)
+    auth = OneLogin_Saml2_Auth(req, custom_base_path=os.path.join(os.path.dirname(__file__), 'saml_config'))
+    auth.process_response()
+    errors = auth.get_errors()
+
+    if errors:
+        logging.error(f"SAML ACS Error: {errors} | Reason: {auth.get_last_error_reason()}")
+        return templates.TemplateResponse("error.html", {"request": request, "errors": errors, "reason": auth.get_last_error_reason()}, status_code=401)
+
+    if not auth.is_authenticated():
+        return RedirectResponse(url="/login?error=auth_failed", status_code=307)
+
+    request.session["user"] = {
+        'email': auth.get_nameid(),
+        'attributes': auth.get_attributes(),
+        'session_index': auth.get_session_index()
+    }
+
+    relay_state = req['post_data'].get('RelayState', '/')
+    if not relay_state.startswith('/'):
+        relay_state = '/'
+
+    return RedirectResponse(url=relay_state, status_code=303)
+
+@app.get('/logout', tags=['Authentication'])
+async def saml_logout(request: Request):
+    """Initiates SAML Single Log-Out (SLO)."""
+    req = await prepare_saml_request(request)
+    auth = OneLogin_Saml2_Auth(req, custom_base_path=os.path.join(os.path.dirname(__file__), 'saml_config'))
+    user_session = request.session.get("user", {})
+    logout_url = auth.logout(
+        name_id=user_session.get("email"),
+        session_index=user_session.get("session_index"),
+        return_to="/logged-out"
+    )
+    request.session.clear()
+    return RedirectResponse(logout_url if logout_url else "/logged-out")
+
+@app.get("/logged-out", response_class=HTMLResponse, tags=['Authentication'])
+async def logged_out_page(request: Request):
+    """Page shown after logout."""
+    return templates.TemplateResponse("logged_out.html", {"request": request})
+
+@app.get("/saml/metadata", tags=['Authentication'])
+async def saml_metadata(request: Request):
+    """Serves the SP metadata XML."""
+    req = await prepare_saml_request(request)
+    auth = OneLogin_Saml2_Auth(req, custom_base_path=os.path.join(os.path.dirname(__file__), 'saml_config'))
+    settings = auth.get_settings()
+    metadata = settings.get_sp_metadata()
+    errors = settings.validate_metadata(metadata)
+    return StarletteResponse(content=metadata, media_type="application/xml") if not errors else JSONResponse(content={'errors': errors}, status_code=500)
+
+# --- Helper Function for AWS Roles ---
 def get_role_arn_for_account(account_id: str) -> str | None:
+    """Finds the correct role ARN for a given account ID from the .env file."""
     target_roles_str = os.getenv("AWS_TARGET_ACCOUNTS_ROLES", "")
-    if target_roles_str and account_id != 'Primary Account':
+    if target_roles_str:
         for r_arn in target_roles_str.split(','):
-            if account_id in r_arn:
+            if f":{account_id}:" in r_arn:
                 return r_arn.strip()
     return None
 
+# --- Main Application Routes ---
 @app.get("/", response_class=HTMLResponse)
-async def read_dashboard(request: Request):
-    if 'dashboard_data' in cache:
-        print("Fetching dashboard data (from cache)...")
-        dashboard_data = cache['dashboard_data']
-    else:
-        print("Fetching dashboard data (cache miss, calling AWS)...")
-        dashboard_data = get_live_eks_data()
-        cache['dashboard_data'] = dashboard_data
-    
-    context = {"request": request, **dashboard_data}
-    return templates.TemplateResponse("dashboard.html", context)
+async def read_dashboard(request: Request, user: dict = Depends(get_current_user)):
+    """The main dashboard page. This route is protected."""
+    if isinstance(user, RedirectResponse):
+        return user
 
-@app.get("/cluster/{account_id}/{region}/{cluster_name}", response_class=HTMLResponse)
-async def read_cluster_detail(request: Request, account_id: str, region: str, cluster_name: str):
-    role_arn = get_role_arn_for_account(account_id)
-    cache_key = f"cluster_{account_id}_{region}_{cluster_name}"
+    saml_attributes = user.get("attributes", {})
+    # Get the group map from the environment to pass to the data fetcher
+    group_map_str = os.getenv("GROUP_TO_ACCOUNT_MAP", "")
+    
+    group_key = next((k for k in saml_attributes if 'Group' in k), None)
+    saml_groups = saml_attributes.get(group_key, [])
+    user_groups = saml_groups if isinstance(saml_groups, list) else [saml_groups]
+
+    cache_key = f"dashboard_data_{'_'.join(sorted(user_groups))}"
 
     if cache_key in cache:
-        print(f"Fetching details for {cluster_name} (from cache)...")
-        cluster_detail_data = cache[cache_key]
+        logging.info(f"Cache HIT for dashboard: user='{user.get('email')}'")
+        dashboard_data = cache[cache_key]
     else:
-        print(f"Fetching details for {cluster_name} (cache miss, calling AWS)...")
-        cluster_detail_data = get_single_cluster_details(account_id, region, cluster_name, role_arn)
-        cache[cache_key] = cluster_detail_data
+        logging.info(f"Cache MISS for dashboard: user='{user.get('email')}'")
+        # Pass the correct arguments to your data fetcher
+        dashboard_data = get_live_eks_data(user_groups, group_map_str)
+        cache[cache_key] = dashboard_data
+
+    context = {"request": request, "user": user, **dashboard_data}
+    return templates.TemplateResponse("dashboard.html", context)
+
+@app.get("/clusters/{account_id}/{region}/{cluster_name}", response_class=HTMLResponse, name="read_cluster_detail")
+async def read_cluster_detail(request: Request, account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
+    """Displays the detailed page for a single EKS cluster."""
+    if isinstance(user, RedirectResponse):
+        return user
+
+    role_arn = get_role_arn_for_account(account_id)
+    if not role_arn:
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "errors": [f"No role ARN configured for account {account_id}."],
+            "reason": "Please check the AWS_TARGET_ACCOUNTS_ROLES in your .env file."
+        }, status_code=404)
+
+    # Correctly call the data fetcher with named arguments for clarity
+    cluster_details = get_single_cluster_details(
+        account_id=account_id, 
+        region=region, 
+        cluster_name=cluster_name, 
+        role_arn=role_arn
+    )
     
     context = {
         "request": request,
-        "cluster": cluster_detail_data,
-        "errors": cluster_detail_data.get("errors", [])
+        "user": user,
+        "cluster": cluster_details,
+        "account_id": account_id,
+        "region": region,
     }
     return templates.TemplateResponse("cluster_detail.html", context)
 
-@app.post("/api/upgrade-nodegroup")
-async def api_upgrade_nodegroup(request: Request):
-    try:
-        body = await request.json()
-        account_id = body.get("accountId")
-        region = body.get("region")
-        cluster_name = body.get("clusterName")
-        nodegroup_name = body.get("nodegroupName")
-    except json.JSONDecodeError:
-        return JSONResponse(status_code=400, content={"error": "Invalid JSON body."})
 
-    if not all([account_id, region, cluster_name, nodegroup_name]):
-        return JSONResponse(status_code=400, content={"error": "Missing required parameters in request body."})
-
-    role_arn = get_role_arn_for_account(account_id)
-    result = upgrade_nodegroup_version(account_id, region, cluster_name, nodegroup_name, role_arn)
-
-    if "error" in result:
-        return JSONResponse(status_code=500, content=result)
-    
-    cache_key = f"cluster_{account_id}_{region}_{cluster_name}"
-    if cache_key in cache:
-        del cache[cache_key]
-        print(f"Cache invalidated for {cache_key}")
-        
-    return JSONResponse(content=result)
-
-@app.get("/api/logs/{account_id}/{region}/{cluster_name}/{log_type}")
-async def api_stream_logs(account_id: str, region: str, cluster_name: str, log_type: str):
-    role_arn = get_role_arn_for_account(account_id)
-    log_group_name = f"/aws/eks/{cluster_name}/cluster"
-    
-    return StreamingResponse(
-        stream_cloudwatch_logs(account_id, region, log_group_name, log_type, role_arn),
-        media_type="text/event-stream"
-    )
-
+# --- Main Execution Block ---
 if __name__ == "__main__":
-    import uvicorn
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

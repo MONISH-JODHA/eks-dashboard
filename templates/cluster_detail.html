@@ -1,7 +1,43 @@
+--- START OF FILE cluster_detail.html ---
+
+
 {% extends "base.html" %}
 
 {% block title %}Cluster Details: {{ cluster.name }}{% endblock %}
 {% block page_title %}Cluster Details{% endblock %}
+
+{% block head_extra %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        .chart-widget-content {
+            height: 300px;
+            padding: 10px;
+        }
+        #observability .widget-header {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        #observability .widget-header h2 {
+            font-size: 1rem;
+            font-weight: 500;
+            margin: 0;
+        }
+        .error-message {
+            color: #f87171;
+            background-color: rgba(248, 113, 113, 0.1);
+            border: 1px solid rgba(248, 113, 113, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+    </style>
+{% endblock %}
 
 {% block content %}
     <a href="{{ url_for('read_dashboard') }}" class="back-link"><i data-feather="arrow-left"></i> Back to Dashboard</a>
@@ -17,6 +53,8 @@
         <div class="tab-nav">
             <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
             <button class="tab-link" onclick="openTab(event, 'nodegroups')"><i data-feather="hard-drive"></i>Compute</button>
+            <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
+            <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="activity"></i>Observability</button>
             <button class="tab-link" onclick="openTab(event, 'logs')"><i data-feather="file-text"></i>Logs</button>
             <button class="tab-link" onclick="openTab(event, 'security')"><i data-feather="shield"></i>Security</button>
         </div>
@@ -33,7 +71,7 @@
                         <div><strong>Account ID:</strong> <span class="text-muted">{{ cluster.account_id }}</span></div>
                         <div><strong>K8s Version:</strong> <span class="text-muted">{{ cluster.version }}</span></div>
                         <div><strong>Platform Version:</strong> <span class="text-muted">{{ cluster.platformVersion }}</span></div>
-                        <div><strong>Created At:</strong> <span class="text-muted">{{ cluster.createdAt.split('T')[0] if cluster.createdAt else 'N/A' }}</span></div>
+                        <div><strong>Created At:</strong> <span class="text-muted">{{ cluster.createdAt.strftime('%Y-%m-%d') if cluster.createdAt else 'N/A' }}</span></div>
                         <div><strong>OIDC Provider:</strong> <span class="text-muted code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
                     </div>
                 </div>
@@ -110,6 +148,56 @@
                         </table>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Addons Tab -->
+        <div id="addons" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2>Cluster Add-ons</h2></div>
+                <div class="widget-content">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Name</th><th>Version</th><th>Status</th><th>Health</th><th>Owner</th><th>Publisher</th><th>Modified At</th></tr></thead>
+                            <tbody>
+                                {% for addon in cluster.addons %}
+                                <tr>
+                                    <td>{{ addon.addonName }}</td>
+                                    <td>{{ addon.addonVersion }}</td>
+                                    <td><span class="status-badge status-{{ addon.status.lower() if addon.status else 'unknown' }}">{{ addon.status }}</span></td>
+                                    <td><span class="health-badge health-{{ addon.health_status.lower().replace('_', '-') }}">{{ addon.health_status.replace('_', ' ') | title }}</span></td>
+                                    <td>{{ addon.owner }}</td>
+                                    <td>{{ addon.publisher }}</td>
+                                    <td>{{ addon.modifiedAt.strftime('%Y-%m-%d') if addon.modifiedAt else 'N/A' }}</td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="7" class="text-muted" style="text-align: center;">No add-ons found for this cluster.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Observability Tab -->
+        <div id="observability" class="tab-content">
+            <div id="metrics-loading-state" style="display: none; text-align: center; padding: 40px;">
+                <p class="text-muted">Loading metrics...</p>
+            </div>
+            <div id="metrics-error-state" style="display: none; padding: 20px 0;">
+                 <p class="error-message">Could not load metrics data.</p>
+            </div>
+            <div class="metrics-grid" style="display: none;">
+                <div class="widget"><div class="widget-header"><h2>Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="requestsChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Requests HTTP 4XX</h2></div><div class="widget-content chart-widget-content"><canvas id="requests4xxChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Requests HTTP 5XX</h2></div><div class="widget-content chart-widget-content"><canvas id="requests5xxChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Requests HTTP 429</h2></div><div class="widget-content chart-widget-content"><canvas id="requests429Chart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Storage Size</h2></div><div class="widget-content chart-widget-content"><canvas id="storageSizeChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Scheduler Attempts</h2></div><div class="widget-content chart-widget-content"><canvas id="schedulerAttemptsChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Pending Pods</h2></div><div class="widget-content chart-widget-content"><canvas id="pendingPodsChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>API Server Request Latency</h2></div><div class="widget-content chart-widget-content"><canvas id="latencyChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>API Server Inflight Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="inflightChart"></canvas></div></div>
             </div>
         </div>
 
@@ -209,7 +297,7 @@
                 const result = await response.json();
                 if (response.ok) {
                     btn.innerHTML = '<i data-feather="check-circle"></i> Initiated';
-                    alert(`Upgrade initiated successfully! Update ID: ${result.updateId}. The page will now reload to reflect the new state.`);
+                    alert(`Upgrade initiated successfully! The page will now reload to reflect the new state.`);
                     window.location.reload();
                 } else {
                     btn.innerHTML = '<i data-feather="alert-triangle"></i> Failed';
@@ -220,14 +308,45 @@
             });
         });
 
+        // --- CORRECTED LOG STREAMING LOGIC ---
         const logSelector = document.getElementById('log-type-selector');
         const logOutput = document.getElementById('log-output');
         let eventSource;
+        let logBuffer = [];
+        let renderScheduled = false;
+
+        function renderLogs() {
+            if (!logBuffer.length) {
+                renderScheduled = false;
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            logBuffer.forEach(line => {
+                fragment.appendChild(document.createTextNode(line));
+            });
+            logBuffer = [];
+            
+            const shouldScroll = logOutput.scrollTop + logOutput.clientHeight === logOutput.scrollHeight;
+            logOutput.appendChild(fragment);
+            if (shouldScroll) {
+                logOutput.scrollTop = logOutput.scrollHeight;
+            }
+            renderScheduled = false;
+        }
+
+        function scheduleRender() {
+            if (!renderScheduled) {
+                renderScheduled = true;
+                requestAnimationFrame(renderLogs);
+            }
+        }
 
         function startLogStream() {
             if (eventSource) {
                 eventSource.close();
             }
+            logBuffer = [];
             logOutput.textContent = 'Connecting to log stream...';
             const logType = logSelector.value;
             const url = `/api/logs/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}/${logType}`;
@@ -237,45 +356,149 @@
 
             eventSource.onmessage = function(event) {
                 if (firstMessage) {
-                    logOutput.textContent = '';
+                    logOutput.textContent = ''; // Clear "Connecting..." message
                     firstMessage = false;
                 }
                 const data = JSON.parse(event.data);
                 
-                if (data.message && logOutput.textContent.includes('Connecting')) {
-                     logOutput.textContent = data.message;
-                     if (!data.timestamp) eventSource.close(); // Close if it's a static message like "no streams found"
-                     return;
-                }
-                
-                if (data.error) {
-                    logOutput.textContent += `\n\nERROR: ${data.error}`;
+                if (data.message && firstMessage) {
+                    logBuffer.push(data.message);
+                    if (!data.timestamp) eventSource.close();
+                } else if (data.error) {
+                    logBuffer.push(`\n\nERROR: ${data.error}`);
                     eventSource.close();
-                    return;
+                } else {
+                    const timestamp = data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString();
+                    const message = data.message || JSON.stringify(data);
+                    logBuffer.push(`[${timestamp}] ${message}\n`);
                 }
-
-                const timestamp = data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString();
-                const message = data.message || JSON.stringify(data);
-                
-                logOutput.textContent += `[${timestamp}] ${message}\n`;
-                logOutput.scrollTop = logOutput.scrollHeight;
+                scheduleRender();
             };
 
             eventSource.onerror = function() {
-                logOutput.textContent += '\n\nConnection to log stream lost or stream ended.';
+                logBuffer.push('\n\nConnection to log stream lost or stream ended.');
+                scheduleRender();
                 eventSource.close();
             };
         }
         
         if(logSelector) {
             logSelector.addEventListener('change', startLogStream);
-            // Automatically start the stream for the default selected log type when the tab is first clicked
             const logsTabButton = document.querySelector('button[onclick*="logs"]');
             logsTabButton.addEventListener('click', () => {
                 if (logOutput.textContent === 'Select a log type to begin streaming...') {
                     startLogStream();
                 }
             }, { once: true });
+        }
+
+        // --- Observability Metrics ---
+        const observabilityTabButton = document.querySelector('button[onclick*="observability"]');
+        let metricsLoaded = false;
+        let metricCharts = {};
+
+        function getChartBaseOptions(yLabel = '') {
+            return {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', displayFormats: { hour: 'HH:mm' }}, ticks: { color: '#94a3b8' }, grid: { color: '#334155' }},
+                    y: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: '#334155' }, title: { display: !!yLabel, text: yLabel, color: '#94a3b8' }}
+                },
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: '#aab7b8', usePointStyle: true, boxHeight: 8, padding: 20 } },
+                    tooltip: { backgroundColor: '#0F172A', titleColor: '#e2e8f0', bodyColor: '#cbd5e0', borderColor: '#334155', borderWidth: 1 }
+                },
+                interaction: { mode: 'index', intersect: false },
+                elements: { point: { radius: 0 } }
+            };
+        }
+
+        function renderMetricChart(canvasId, datasets, yLabel = '') {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) return;
+            if (metricCharts[canvasId]) metricCharts[canvasId].destroy();
+            
+            const data = {
+                datasets: datasets.map(ds => ({
+                    label: ds.label,
+                    data: ds.timestamps.map((ts, i) => ({ x: ts, y: ds.values[i] })),
+                    borderColor: ds.color, borderWidth: 2, tension: 0.1
+                }))
+            };
+            
+            metricCharts[canvasId] = new Chart(ctx, { type: 'line', data: data, options: getChartBaseOptions(yLabel) });
+        }
+
+        function processAndRenderCharts(metricsData) {
+            const simpleChart = (canvasId, dataKey, label, color, yLabel) => {
+                if (metricsData[dataKey] && metricsData[dataKey].values.length > 0) {
+                    renderMetricChart(canvasId, [{...metricsData[dataKey], label, color}], yLabel);
+                }
+            };
+            const multiLineChart = (canvasId, series, yLabel) => {
+                const datasets = series.map(s => metricsData[s.key] && metricsData[s.key].values.length > 0 ? { ...metricsData[s.key], label: s.label, color: s.color } : null).filter(Boolean);
+                if(datasets.length > 0) renderMetricChart(canvasId, datasets, yLabel);
+            };
+
+            simpleChart('requestsChart', 'requests', 'Total', '#4A90E2', 'Count');
+            simpleChart('requests4xxChart', 'requests_4xx', '4XX Errors', '#F5A623', 'Count');
+            simpleChart('requests5xxChart', 'requests_5xx', '5XX Errors', '#D0021B', 'Count');
+            simpleChart('requests429Chart', 'requests_429', '429 Throttles', '#BD10E0', 'Count');
+            simpleChart('storageSizeChart', 'storage_size', 'Size', '#50E3C2', 'Bytes');
+            multiLineChart('schedulerAttemptsChart', [
+                { key: 'scheduler_attempts_scheduled', label: 'Scheduled', color: '#7ED321' },
+                { key: 'scheduler_attempts_unschedulable', label: 'Unschedulable', color: '#F5A623' },
+                { key: 'scheduler_attempts_error', label: 'Error', color: '#D0021B' }
+            ], 'Count');
+            multiLineChart('pendingPodsChart', [
+                { key: 'pending_pods_gated', label: 'Gated', color: '#4A90E2' },
+                { key: 'pending_pods_unschedulable', label: 'Unschedulable', color: '#F5A623' },
+                { key: 'pending_pods_activeq', label: 'ActiveQ', color: '#7ED321' },
+                { key: 'pending_pods_backoff', label: 'Backoff', color: '#F8E71C' }
+            ], 'Count');
+            multiLineChart('latencyChart', [
+                { key: 'latency_get', label: 'GET P99', color: '#4A90E2' },
+                { key: 'latency_post', label: 'POST P99', color: '#50E3C2' },
+                { key: 'latency_put', label: 'PUT P99', color: '#F5A623' },
+                { key: 'latency_delete', label: 'DELETE P99', color: '#D0021B' }
+            ], 'Seconds');
+            multiLineChart('inflightChart', [
+                { key: 'inflight_mutating', label: 'Mutating', color: '#F5A623' },
+                { key: 'inflight_readonly', label: 'Read-only', color: '#4A90E2' }
+            ], 'Count');
+        }
+
+        async function loadMetrics() {
+            if (metricsLoaded) return;
+            document.getElementById('metrics-loading-state').style.display = 'block';
+            document.querySelector('#observability .metrics-grid').style.display = 'none';
+            document.getElementById('metrics-error-state').style.display = 'none';
+
+            try {
+                const url = `/api/metrics/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}`;
+                const response = await fetch(url);
+                const metricsData = await response.json();
+                
+                if (!response.ok) throw new Error(metricsData.error || 'Failed to fetch metrics');
+                if (Object.keys(metricsData).length === 0 || Object.values(metricsData).every(d => d.values.length === 0)) {
+                    throw new Error("No metrics data returned. Please ensure Container Insights is enabled and the cluster has been active recently.");
+                }
+                
+                processAndRenderCharts(metricsData);
+                metricsLoaded = true;
+                document.querySelector('#observability .metrics-grid').style.display = 'grid';
+            } catch (error) {
+                console.error('Failed to load metrics:', error);
+                const errorState = document.getElementById('metrics-error-state');
+                errorState.querySelector('.error-message').textContent = error.message;
+                errorState.style.display = 'block';
+            } finally {
+                document.getElementById('metrics-loading-state').style.display = 'none';
+            }
+        }
+
+        if (observabilityTabButton) {
+            observabilityTabButton.addEventListener('click', loadMetrics, { once: true });
         }
     });
 </script>

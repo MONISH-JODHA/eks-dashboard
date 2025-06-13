@@ -1,3 +1,5 @@
+--- START OF FILE style.css ---
+
 :root {
     --bg-color: #0F172A; /* Slate 900 */
     --surface-color: #1E293B; /* Slate 800 */
@@ -164,6 +166,18 @@ body {
     display: flex;
     align-items: center;
     gap: 1.5rem;
+    border: 2px solid transparent;
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+.info-box.clickable-filter {
+    cursor: pointer;
+}
+.info-box.clickable-filter:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+.info-box.active-filter {
+    border-color: var(--primary-color);
 }
 .info-box .icon-bg {
     flex-shrink: 0;
@@ -208,19 +222,49 @@ body {
 .widget-header {
     padding: 1rem 1.5rem;
     border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 .widget-header h2 {
     font-size: 1.1rem;
     font-weight: 600;
     margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
 }
+.widget-header h2 i {
+    width: 20px;
+    height: 20px;
+    color: var(--text-secondary);
+}
+/* NEW STYLES for Top N filter */
+.widget-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.widget-actions label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+.widget-actions select {
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 5px;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.85rem;
+}
+
 .widget-content {
     padding: 1.5rem;
     flex-grow: 1;
 }
 .chart-container {
     position: relative;
-    height: 300px;
+    height: 250px;
 }
 .text-muted {
     color: var(--text-muted);
@@ -278,7 +322,7 @@ body {
 .status-unknown, .status-badge.status-unknown { background-color: rgba(100, 116, 139, 0.2); color: var(--status-unknown); }
 
 .health-badge.health-healthy { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
-.health-badge.health-has_issues { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
+.health-badge.health-has-issues { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
 .health-badge.health-unknown { background-color: rgba(100, 116, 139, 0.2); color: var(--status-unknown); }
 
 .insight-badge.insight-passing { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
@@ -309,9 +353,6 @@ body {
         font-size: 1.5rem;
     }
 }
-
-
-/* --- Add these new styles to the end of your existing style.css --- */
 
 /* --- Cluster Detail Page Specifics --- */
 .back-link {
@@ -362,11 +403,6 @@ body {
 }
 
 /* --- General UI Enhancements --- */
-.widget-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
 .export-btn {
     background: none;
     border: 1px solid var(--border-color);
@@ -413,26 +449,30 @@ body {
     font-size: 0.8rem;
 }
 
-
-
-/* --- Add these new styles to the end of your existing style.css --- */
-
 /* Tab Navigation */
 .tab-container { margin-top: 1.5rem; }
 .tab-nav {
     border-bottom: 1px solid var(--border-color);
     margin-bottom: 1.5rem;
     display: flex;
+    flex-wrap: wrap;
 }
 .tab-link {
     background: none;
     border: none;
     color: var(--text-secondary);
-    padding: 0.75rem 1.5rem;
+    padding: 0.75rem 1.25rem;
     cursor: pointer;
     font-size: 1rem;
     position: relative;
     top: 1px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.tab-link i {
+    width: 18px;
+    height: 18px;
 }
 .tab-link.active {
     color: var(--primary-color);
@@ -459,6 +499,27 @@ body {
 .action-btn:hover { background-color: #7dd3fc; } /* light-blue-300 */
 .action-btn:disabled { background-color: var(--border-color); color: var(--text-muted); cursor: not-allowed; }
 .action-btn i { width: 16px; height: 16px; }
+
+/* Header Actions */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+.header-actions .action-btn {
+    padding: 0.5rem;
+    background-color: var(--surface-color);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    line-height: 0;
+}
+.header-actions .action-btn:hover {
+    background-color: var(--border-color);
+}
+.header-actions .action-btn i {
+    width: 18px;
+    height: 18px;
+}
 
 /* Log Viewer */
 .log-box {
@@ -489,8 +550,6 @@ body {
 .spin { animation: spin 1s linear infinite; }
 
 
-/* --- Add these new styles to the end of your existing style.css --- */
-
 /* Observability Grid */
 .observability-grid {
     display: grid;
@@ -511,12 +570,4 @@ body {
 }
 .metric-widget .text-muted {
     padding: 2rem;
-}
-
-/* Tab Icon Styling */
-.tab-link i {
-    margin-right: 0.5rem;
-    vertical-align: middle;
-    width: 18px;
-    height: 18px;
 }
