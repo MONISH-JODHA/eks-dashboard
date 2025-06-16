@@ -6,7 +6,7 @@
 {% block head_extra %}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <!-- New: Vis Network for workload graph -->
+    <!-- Vis Network for workload graph -->
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <link href="https://unpkg.com/vis-network/styles/vis-network.min.css" rel="stylesheet" type="text/css" />
 
@@ -20,11 +20,14 @@
             height: 300px;
             padding: 10px;
         }
-        #observability .widget-header, #insights .widget-header {
+        #observability .widget-header, #insights .widget-header, #overview .widget-header {
             padding: 10px 15px;
             border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        #observability .widget-header h2, #insights .widget-header h2 {
+        #observability .widget-header h2, #insights .widget-header h2, #overview .widget-header h2 {
             font-size: 1rem;
             font-weight: 500;
             margin: 0;
@@ -37,18 +40,55 @@
             border-radius: 8px;
             text-align: center;
         }
-        /* New: Workload graph styles */
-        #workload-graph-container {
-            margin-bottom: 20px;
+
+        /* --- Styles for Agentless/New Features --- */
+        .analysis-card {
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
         }
+        .action-button {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.3rem 0.7rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: background-color 0.2s, color 0.2s;
+            margin-left: 0.5rem;
+        }
+        .action-button:hover { background-color: var(--border-color); color: var(--text-primary); }
+        .action-button:disabled { background-color: var(--border-color); color: var(--text-muted); cursor: not-allowed; }
+        .action-button i { width: 14px; height: 14px; }
+        .scale-input {
+            width: 55px;
+            padding: 0.3rem;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            text-align: center;
+        }
+        .grid-gap-4 { display: grid; gap: 1rem; }
+        @media (min-width: 768px) { .md-grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        
+        /* Workload graph styles */
+        #workload-graph-container { margin-bottom: 20px; }
         #workload-graph {
             width: 100%;
             height: 500px;
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            background-color: var(--background-color);
+            background-color: var(--bg-color);
         }
-        /* New: Vulnerability and Insight styles */
+        /* Vulnerability and Insight styles */
         .vulnerability-badge {
             display: inline-block;
             padding: 2px 8px;
@@ -68,7 +108,7 @@
             margin-bottom: 20px;
         }
         .insight-card {
-            background-color: var(--widget-bg);
+            background-color: var(--surface-color);
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 16px;
@@ -84,8 +124,8 @@
         .severity-high { background-color: #ef4444; color: white; }
         .severity-medium { background-color: #f97316; color: white; }
         .severity-low { background-color: #eab308; color: white; }
-        .insight-card-body p { font-size: 0.875rem; color: var(--text-muted); margin: 4px 0 12px; }
-        .insight-card-body strong { color: var(--text-color); }
+        .insight-card-body p { font-size: 0.875rem; color: var(--text-secondary); margin: 4px 0 12px; }
+        .insight-card-body strong { color: var(--text-primary); }
     </style>
 {% endblock %}
 
@@ -102,18 +142,23 @@
     <div class="tab-container">
         <div class="tab-nav">
             <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
-            <button class="tab-link" onclick="openTab(event, 'nodegroups')"><i data-feather="hard-drive"></i>Compute</button>
-            <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
+            <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="bar-chart-2"></i>Analysis & Insights</button>
+            <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads & Actions</button>
+            <button class="tab-link" onclick="openTab(event, 'compute')"><i data-feather="hard-drive"></i>Compute</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
             <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="activity"></i>Observability</button>
             <button class="tab-link" onclick="openTab(event, 'logs')"><i data-feather="file-text"></i>Logs</button>
-            <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="dollar-sign"></i>Cost & Insights</button>
         </div>
 
         <!-- Overview Tab -->
         <div id="overview" class="tab-content active">
             <div class="widget">
-                <div class="widget-header"><h2>Cluster Summary</h2></div>
+                <div class="widget-header">
+                    <h2>Cluster Summary</h2>
+                    <button id="refreshBtn" class="action-button">
+                        <i data-feather="refresh-cw"></i> Refresh Data
+                    </button>
+                </div>
                 <div class="widget-content">
                     <div class="summary-grid">
                         <div><strong>ARN:</strong> <span class="text-muted code">{{ cluster.arn }}</span></div>
@@ -128,7 +173,6 @@
                     </div>
                 </div>
             </div>
-
             <div class="widget">
                 <div class="widget-header"><h2>Networking & Security</h2></div>
                 <div class="widget-content">
@@ -140,7 +184,6 @@
                     </div>
                 </div>
             </div>
-
             {% if cluster.health_issues %}
             <div class="widget">
                 <div class="widget-header"><h2>Health Issues</h2></div>
@@ -156,9 +199,186 @@
             </div>
             {% endif %}
         </div>
+        
+        <!-- Analysis & Insights Tab -->
+        <div id="insights" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2>Cost Optimization Insights</h2></div>
+                <div class="widget-content">
+                    {% if cluster.cost_insights %}
+                    <div class="insights-grid">
+                        {% for insight in cluster.cost_insights %}
+                        <div class="insight-card">
+                            <div class="insight-card-header">
+                                <span class="insight-card-title">{{ insight.title }}</span>
+                                <span class="severity-badge severity-{{ insight.severity.lower() }}">{{ insight.severity }}</span>
+                            </div>
+                            <div class="insight-card-body">
+                                <p>{{ insight.description }}</p>
+                                <p><strong>Recommendation:</strong> {{ insight.recommendation }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted" style="text-align:center; padding: 20px 0;">No cost optimization opportunities found.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="widget">
+                <div class="widget-header"><h2>Rightsizing Recommendations</h2></div>
+                <div class="widget-content">
+                     {% if cluster.analysis and cluster.analysis.rightsizing %}
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>Workload</th><th>Namespace</th><th>Metric</th><th>Current Request</th><th>Recommended Request</th></tr></thead>
+                                <tbody>
+                                {% for rec in cluster.analysis.rightsizing %}
+                                    <tr>
+                                        <td>{{ rec.workload }}</td>
+                                        <td>{{ rec.namespace }}</td>
+                                        <td><span class="tag code">{{ rec.metric }}</span></td>
+                                        <td>{{ rec.current_request }}</td>
+                                        <td><strong>{{ rec.recommended_request }}</strong></td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                     {% elif cluster.analysis and cluster.analysis.error %}
+                        <div class="error-message">{{ cluster.analysis.error }}</div>
+                     {% else %}
+                        <p class="text-muted" style="text-align: center; padding: 2rem;">No specific rightsizing opportunities found at this time.</p>
+                     {% endif %}
+                </div>
+            </div>
+            <div class="widget">
+                <div class="widget-header"><h2>Container Image Vulnerability Summary</h2></div>
+                <div class="widget-content">
+                    {% if cluster.workloads and cluster.workloads.vulnerable_images %}
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Image</th><th>Critical</th><th>High</th></tr></thead>
+                            <tbody>
+                                {% for image, vulns in cluster.workloads.vulnerable_images.items() %}
+                                <tr>
+                                    <td class="code">{{ image }}</td>
+                                    <td>{{ vulns.CRITICAL }}</td>
+                                    <td>{{ vulns.HIGH }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% elif cluster.workloads and not cluster.workloads.error %}
+                    <p class="text-muted" style="text-align:center; padding: 20px 0;">No images with CRITICAL or HIGH vulnerabilities found.</p>
+                    {% else %}
+                    <p class="text-muted" style="text-align:center; padding: 20px 0;">Could not retrieve vulnerability data.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="widget">
+                <div class="widget-header"><h2>Security Best Practices Checklist</h2></div>
+                <div class="widget-content">
+                    {% if cluster.security_insights %}
+                    <table class="data-table security-table">
+                         <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
+                         <tbody>
+                            {% for key, insight in cluster.security_insights.items() %}
+                            <tr>
+                                <td>{{ insight.description }}</td>
+                                <td><span class="status-badge status-{{ 'active' if insight.status else 'failed' }}">{{ 'Passing' if insight.status else 'Attention' }}</span></td>
+                                <td class="text-muted">
+                                    {% if key == 'latest_platform_version' and not insight.status %}Current: {{ insight.current }}, Latest: {{ insight.latest }}{% elif key == 'logging_enabled' and not insight.status %}Missing: {{ insight.missing_logs | join(', ') }}{% else %}-{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                         </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted">Security insights could not be generated for this cluster.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Workloads & Actions Tab -->
+        <div id="workloads" class="tab-content">
+            {% if (cluster.deployments is defined and cluster.workloads is defined) and not cluster.workloads.error %}
+                <div id="workload-graph-container" class="widget">
+                    <div class="widget-header"><h2>Workload Relationship Map</h2></div>
+                    <div class="widget-content" style="padding: 0;"><div id="workload-graph"></div></div>
+                </div>
+                <div class="widget">
+                    <div class="widget-header"><h2>Deployments</h2></div>
+                    <div class="widget-content">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Replicas</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                    {% for dep in cluster.deployments %}
+                                    <tr>
+                                        <td>{{ dep.metadata.name }}</td>
+                                        <td>{{ dep.metadata.namespace }}</td>
+                                        <td><span class="status-badge status-{{ 'active' if dep.status.ready_replicas == dep.spec.replicas else 'updating' }}">{{ dep.status.ready_replicas or 0 }}/{{ dep.spec.replicas }}</span></td>
+                                        <td>
+                                            <button class="action-button" onclick="handleWorkloadAction(event, '{{ dep.metadata.namespace }}', 'Deployment', '{{ dep.metadata.name }}', 'restart')"><i data-feather="refresh-cw"></i> Restart</button>
+                                            <input type="number" value="{{ dep.spec.replicas }}" min="0" class="scale-input" id="scale-{{ dep.metadata.uid }}">
+                                            <button class="action-button" onclick="handleWorkloadAction(event, '{{ dep.metadata.namespace }}', 'Deployment', '{{ dep.metadata.name }}', 'scale', 'scale-{{ dep.metadata.uid }}')"><i data-feather="move"></i> Scale</button>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="4" class="text-muted" style="text-align:center;">No deployments found.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                 <div class="widget">
+                    <div class="widget-header"><h2>All Pods</h2></div>
+                    <div class="widget-content">
+                        <div class="table-container">
+                             <table class="data-table">
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th><th>Vulnerabilities</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                    {% for pod in cluster.workloads.pods %}
+                                    <tr>
+                                        <td>{{ pod.metadata.name }}</td>
+                                        <td>{{ pod.metadata.namespace }}</td>
+                                        <td>{{ pod.spec.nodeName | default('N/A') }}</td>
+                                        <td><span class="status-badge status-{{ pod.status.phase.lower() }}">{{ pod.status.phase }}</span></td>
+                                        <td>{{ pod.restarts }}</td>
+                                        <td>{{ pod.age }}</td>
+                                        <td>
+                                            {% if pod.vulnerability_summary.error %}<span class="vulnerability-badge error" title="{{ pod.vulnerability_summary.error }}">Scan Error</span>
+                                            {% elif pod.vulnerability_summary.CRITICAL > 0 or pod.vulnerability_summary.HIGH > 0 %}
+                                                {% if pod.vulnerability_summary.CRITICAL > 0 %}<span class="vulnerability-badge critical">C: {{ pod.vulnerability_summary.CRITICAL }}</span>{% endif %}
+                                                {% if pod.vulnerability_summary.HIGH > 0 %}<span class="vulnerability-badge high">H: {{ pod.vulnerability_summary.HIGH }}</span>{% endif %}
+                                            {% else %}<span class="text-muted">None Found</span>{% endif %}
+                                        </td>
+                                        <td>
+                                             <button class="action-button" onclick="handleWorkloadAction(event, '{{ pod.metadata.namespace }}', 'Pod', '{{ pod.metadata.name }}', 'delete_pod')"><i data-feather="trash-2"></i> Delete</button>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="8" class="text-muted" style="text-align:center;">No pods found.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                 </div>
+             {% else %}
+                 <div class="error-message-box"><strong>Could not load workload data.</strong>
+                 <p>Could not connect to the Kubernetes API server or permissions are missing.
+                    {% if cluster.workloads.error %}Reason: {{ cluster.workloads.error }}{% endif %}
+                 </p></div>
+             {% endif %}
+        </div>
 
-        <!-- Nodegroups Tab -->
-        <div id="nodegroups" class="tab-content">
+        <!-- Compute Tab -->
+        <div id="compute" class="tab-content">
             <div class="widget">
                 <div class="widget-header"><h2>Nodegroups & Compute Nodes</h2></div>
                 <div class="widget-content">
@@ -170,31 +390,17 @@
                                 <tr>
                                     <td>{{ ng.name }}</td>
                                     <td><span class="status-badge status-{{ ng.status.lower() if ng.status else 'unknown' }}">{{ ng.status }}</span></td>
-                                    <td>
-                                        {% if ng.is_karpenter_node %}
-                                            <span class="tag code">Auto Mode</span>
-                                        {% else %}
-                                            <span class="tag">Managed</span>
-                                        {% endif %}
-                                    </td>
+                                    <td>{% if ng.is_karpenter_node %}<span class="tag code">Auto Mode</span>{% else %}<span class="tag">Managed</span>{% endif %}</td>
                                     <td>{{ ng.instanceTypes | join(', ') }}</td>
                                     <td>{{ ng.version }}</td>
                                     <td>
                                         {% if not ng.is_karpenter_node and ng.releaseVersion and ng.version and ng.releaseVersion < ng.version %}
-                                        <button class="action-btn upgrade-btn"
-                                                data-account-id="{{ cluster.account_id }}"
-                                                data-region="{{ cluster.region }}"
-                                                data-cluster-name="{{ cluster.name }}"
-                                                data-nodegroup-name="{{ ng.name }}">
-                                            <i data-feather="chevrons-up"></i> Upgrade Now
-                                        </button>
-                                        {% else %}
-                                        <span class="text-muted">N/A</span>
-                                        {% endif %}
+                                        <button class="action-btn upgrade-btn" data-nodegroup-name="{{ ng.name }}"><i data-feather="chevrons-up"></i> Upgrade Now</button>
+                                        {% else %}<span class="text-muted">N/A</span>{% endif %}
                                     </td>
                                 </tr>
                                 {% else %}
-                                <tr><td colspan="6" class="text-muted" style="text-align: center;">No nodegroups or compute nodes found for this cluster.</td></tr>
+                                <tr><td colspan="6" class="text-muted" style="text-align: center;">No nodegroups or compute nodes found.</td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -203,64 +409,9 @@
             </div>
         </div>
 
-        <!-- Workloads Tab -->
-        <div id="workloads" class="tab-content">
-            {% if cluster.workloads and not cluster.workloads.error %}
-                <div id="workload-graph-container" class="widget">
-                    <div class="widget-header"><h2>Workload Relationship Map</h2></div>
-                    <div class="widget-content" style="padding: 0;">
-                        <div id="workload-graph"></div>
-                    </div>
-                </div>
-                <div class="widget">
-                    <div class="widget-header"><h2>Pods</h2></div>
-                    <div class="widget-content">
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th><th>Vulnerabilities</th></tr></thead>
-                                <tbody>
-                                    {% for pod in cluster.workloads.pods %}
-                                    <tr>
-                                        <td>{{ pod.metadata.name }}</td>
-                                        <td>{{ pod.metadata.namespace }}</td>
-                                        <td>{{ pod.spec.nodeName | default('N/A') }}</td>
-                                        <td><span class="status-badge status-{{ pod.status.phase.lower() }}">{{ pod.status.phase }}</span></td>
-                                        <td>{{ pod.restarts }}</td>
-                                        <td>{{ pod.age }}</td>
-                                        <td>
-                                            {% if pod.vulnerability_summary.error %}
-                                                <span class="vulnerability-badge error" title="{{ pod.vulnerability_summary.error }}">Scan Error</span>
-                                            {% elif pod.vulnerability_summary.CRITICAL > 0 or pod.vulnerability_summary.HIGH > 0 %}
-                                                {% if pod.vulnerability_summary.CRITICAL > 0 %}
-                                                    <span class="vulnerability-badge critical">C: {{ pod.vulnerability_summary.CRITICAL }}</span>
-                                                {% endif %}
-                                                {% if pod.vulnerability_summary.HIGH > 0 %}
-                                                    <span class="vulnerability-badge high">H: {{ pod.vulnerability_summary.HIGH }}</span>
-                                                {% endif %}
-                                            {% else %}
-                                                <span class="text-muted">None Found</span>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    {% else %}
-                                    <tr><td colspan="7" class="text-muted" style="text-align: center;">No pods found.</td></tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            {% else %}
-                <div class="error-message-box">
-                    <strong>Could not load workload data.</strong>
-                    {% if cluster.workloads.error %}<p>Reason: {{ cluster.workloads.error }}</p>{% endif %}
-                </div>
-            {% endif %}
-        </div>
-
-        <!-- Addons Tab -->
+        <!-- Add-ons Tab -->
         <div id="addons" class="tab-content">
-            <div class="widget">
+             <div class="widget">
                 <div class="widget-header"><h2>Cluster Add-ons</h2></div>
                 <div class="widget-content">
                     <div class="table-container">
@@ -289,12 +440,8 @@
 
         <!-- Observability Tab -->
         <div id="observability" class="tab-content">
-            <div id="metrics-loading-state" style="display: none; text-align: center; padding: 40px;">
-                <p class="text-muted">Loading metrics...</p>
-            </div>
-            <div id="metrics-error-state" style="display: none; padding: 20px 0;">
-                 <p class="error-message">Could not load metrics data.</p>
-            </div>
+            <div id="metrics-loading-state" style="display: none; text-align: center; padding: 40px;"><p class="text-muted">Loading metrics...</p></div>
+            <div id="metrics-error-state" style="display: none; padding: 20px 0;"><p class="error-message">Could not load metrics data.</p></div>
             <div class="metrics-grid" style="display: none;">
                 <div class="widget"><div class="widget-header"><h2>Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="requestsChart"></canvas></div></div>
                 <div class="widget"><div class="widget-header"><h2>Requests HTTP 4XX</h2></div><div class="widget-content chart-widget-content"><canvas id="requests4xxChart"></canvas></div></div>
@@ -314,119 +461,22 @@
                 <div class="widget-header">
                     <h2>Control Plane Logs (Last 10 minutes)</h2>
                     <select id="log-type-selector">
-                        <option value="api">api</option>
-                        <option value="audit">audit</option>
-                        <option value="authenticator">authenticator</option>
-                        <option value="scheduler">scheduler</option>
-                        <option value="controllerManager">controllerManager</option>
+                        <option value="api">api</option><option value="audit">audit</option><option value="authenticator">authenticator</option>
+                        <option value="scheduler">scheduler</option><option value="controllerManager">controllerManager</option>
                     </select>
                 </div>
-                <div class="widget-content">
-                    <pre id="log-output" class="log-box">Select a log type to begin streaming...</pre>
-                </div>
+                <div class="widget-content"><pre id="log-output" class="log-box">Select a log type to begin streaming...</pre></div>
             </div>
         </div>
 
-        <!-- Cost & Insights Tab -->
-        <div id="insights" class="tab-content">
-            <div class="widget">
-                <div class="widget-header"><h2>Cost Optimization Insights</h2></div>
-                <div class="widget-content">
-                    {% if cluster.cost_insights %}
-                    <div class="insights-grid">
-                        {% for insight in cluster.cost_insights %}
-                        <div class="insight-card">
-                            <div class="insight-card-header">
-                                <span class="insight-card-title">{{ insight.title }}</span>
-                                <span class="severity-badge severity-{{ insight.severity.lower() }}">{{ insight.severity }}</span>
-                            </div>
-                            <div class="insight-card-body">
-                                <p>{{ insight.description }}</p>
-                                <p><strong>Recommendation:</strong> {{ insight.recommendation }}</p>
-                            </div>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <p class="text-muted" style="text-align:center; padding: 20px 0;">No cost optimization opportunities found.</p>
-                    {% endif %}
-                </div>
-            </div>
-
-            <div class="widget">
-                <div class="widget-header"><h2>Container Image Vulnerability Summary</h2></div>
-                <div class="widget-content">
-                    {% if cluster.workloads and cluster.workloads.vulnerable_images %}
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Image</th>
-                                    <th>Critical</th>
-                                    <th>High</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for image, vulns in cluster.workloads.vulnerable_images.items() %}
-                                <tr>
-                                    <td class="code">{{ image }}</td>
-                                    <td>{{ vulns.CRITICAL }}</td>
-                                    <td>{{ vulns.HIGH }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% elif cluster.workloads and not cluster.workloads.error %}
-                    <p class="text-muted" style="text-align:center; padding: 20px 0;">No images with CRITICAL or HIGH vulnerabilities found.</p>
-                    {% else %}
-                    <p class="text-muted" style="text-align:center; padding: 20px 0;">Could not retrieve vulnerability data.</p>
-                    {% endif %}
-                </div>
-            </div>
-
-            <div class="widget">
-                <div class="widget-header"><h2>Security Best Practices Checklist</h2></div>
-                <div class="widget-content">
-                    {% if cluster.security_insights %}
-                    <table class="data-table security-table">
-                         <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
-                         <tbody>
-                            {% for key, insight in cluster.security_insights.items() %}
-                            <tr>
-                                <td>{{ insight.description }}</td>
-                                <td>
-                                    <span class="status-badge status-{{ 'active' if insight.status else 'failed' }}">
-                                        {{ 'Passing' if insight.status else 'Attention' }}
-                                    </span>
-                                </td>
-                                <td class="text-muted">
-                                    {% if key == 'latest_platform_version' and not insight.status %}
-                                        Current: {{ insight.current }}, Latest: {{ insight.latest }}
-                                    {% elif key == 'logging_enabled' and not insight.status %}
-                                        Missing: {{ insight.missing_logs | join(', ') }}
-                                    {% else %}
-                                        -
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                         </tbody>
-                    </table>
-                    {% else %}
-                    <p class="text-muted">Security insights could not be generated for this cluster.</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
     </div>
     {% endif %}
 {% endblock %}
 
 {% block scripts_extra %}
 <script>
-    // Store workloads data from Jinja to be accessible in JS
-    const workloadsData = {{ cluster.workloads | tojson | safe }};
+    // Store workloads data from Jinja to be accessible in JS for the graph
+    const workloadsData = {{ cluster.workloads | tojson | safe if cluster.workloads else 'null' }};
     let workloadGraphRendered = false;
 
     function openTab(evt, tabName) {
@@ -435,19 +485,63 @@
         document.getElementById(tabName).style.display = 'block';
         evt.currentTarget.classList.add('active');
 
-        // New: Render workload graph only when its tab is opened for the first time
+        // Render workload graph only when its tab is opened for the first time
         if (tabName === 'workloads' && !workloadGraphRendered) {
             renderWorkloadGraph();
             workloadGraphRendered = true;
         }
         feather.replace();
     }
-    document.getElementById('overview').style.display = 'block';
 
-    // New: Function to render the workload graph
+    // Workload Action Handler (from original code)
+    async function handleWorkloadAction(event, namespace, kind, name, action, scaleInputId = null) {
+        let payload = { namespace, kind, name, action };
+        let confirmMessage = `Are you sure you want to ${action.replace('_', ' ')} ${kind} "${name}" in namespace "${namespace}"?`;
+
+        if (action === 'scale') {
+            const scaleValue = document.getElementById(scaleInputId).value;
+            payload.replicas = parseInt(scaleValue, 10);
+            if (isNaN(payload.replicas) || payload.replicas < 0) {
+                alert('Please enter a valid non-negative number for replicas.');
+                return;
+            }
+            confirmMessage = `Are you sure you want to scale ${kind} "${name}" to ${payload.replicas} replicas?`;
+        }
+        
+        if (!confirm(confirmMessage)) return;
+
+        const button = event.currentTarget;
+        const originalHtml = button.innerHTML;
+        button.innerHTML = '<i data-feather="loader" class="spin"></i>';
+        button.disabled = true;
+        feather.replace();
+
+        try {
+            const response = await fetch('/api/actions/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'An unknown error occurred.');
+            }
+            alert(`Success: ${result.success}`);
+            button.innerHTML = '<i data-feather="check"></i> Success';
+            feather.replace();
+            setTimeout(() => window.location.reload(), 1500);
+        } catch (error) {
+            alert(`Action failed: ${error.message}`);
+            button.innerHTML = originalHtml;
+            button.disabled = false;
+            feather.replace();
+        }
+    }
+
+    // Function to render the workload graph (from updated code)
     function renderWorkloadGraph() {
-        if (!workloadsData || workloadsData.error) {
-            document.getElementById('workload-graph').innerHTML = '<p class="text-muted" style="text-align:center; padding-top: 50px;">Could not render workload graph.</p>';
+        if (!workloadsData || workloadsData.error || !workloadsData.map_nodes) {
+            document.getElementById('workload-graph').innerHTML = '<p class="text-muted" style="text-align:center; padding-top: 50px;">Could not render workload graph. Data is unavailable.</p>';
             return;
         }
 
@@ -458,17 +552,8 @@
         };
 
         const options = {
-            nodes: {
-                shape: 'dot',
-                size: 16,
-                font: { size: 12, color: '#e2e8f0' },
-                borderWidth: 2,
-            },
-            edges: {
-                width: 1,
-                color: { inherit: 'from' },
-                smooth: { type: 'continuous' },
-            },
+            nodes: { shape: 'dot', size: 16, font: { size: 12, color: 'var(--text-primary)' }, borderWidth: 2 },
+            edges: { width: 1, color: { inherit: 'from' }, smooth: { type: 'continuous' } },
             groups: {
                 ingress: { color: { background: '#7c3aed', border: '#a78bfa' }, shape: 'diamond' },
                 svc: { color: { background: '#2563eb', border: '#60a5fa' }, shape: 'square' },
@@ -477,35 +562,53 @@
             },
             physics: {
                 solver: 'forceAtlas2Based',
-                forceAtlas2Based: {
-                    gravitationalConstant: -26,
-                    centralGravity: 0.005,
-                    springLength: 230,
-                    springConstant: 0.18,
-                },
-                maxVelocity: 146,
-                minVelocity: 0.75,
-                stabilization: { iterations: 150 },
+                forceAtlas2Based: { gravitationalConstant: -30, centralGravity: 0.005, springLength: 250, springConstant: 0.18 },
+                maxVelocity: 150, minVelocity: 0.75, stabilization: { iterations: 150 },
             },
-            interaction: {
-                tooltipDelay: 200,
-                hideEdgesOnDrag: true,
-                hover: true
-            },
+            interaction: { tooltipDelay: 200, hideEdgesOnDrag: true, hover: true },
         };
 
         const network = new vis.Network(container, data, options);
     }
 
-
     document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('overview').style.display = 'block';
         feather.replace();
 
+        // --- Refresh Button Logic ---
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', async () => {
+                refreshBtn.disabled = true;
+                refreshBtn.innerHTML = '<i data-feather="loader" class="spin"></i> Refreshing...';
+                feather.replace();
+
+                try {
+                    const response = await fetch('/api/refresh-data', { method: 'POST' });
+                    if (response.ok) {
+                        window.location.reload();
+                    } else {
+                        const result = await response.json();
+                        alert('Failed to refresh data: ' + (result.error || 'Unknown error'));
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = '<i data-feather="refresh-cw"></i> Refresh Data';
+                        feather.replace();
+                    }
+                } catch (error) {
+                    alert('An error occurred while trying to refresh data.');
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = '<i data-feather="refresh-cw"></i> Refresh Data';
+                    feather.replace();
+                }
+            });
+        }
+
+        // Nodegroup Upgrade Button Logic
         document.querySelectorAll('.upgrade-btn').forEach(button => {
             button.addEventListener('click', async (e) => {
                 const btn = e.currentTarget;
-                if (!confirm(`Are you sure you want to upgrade nodegroup "${btn.dataset.nodegroupName}"? This will start a rolling update of the nodes.`)) return;
-
+                if (!confirm(`Are you sure you want to upgrade nodegroup "${btn.dataset.nodegroupName}"?`)) return;
+                
                 btn.disabled = true;
                 btn.innerHTML = '<i data-feather="loader" class="spin"></i> Upgrading...';
                 feather.replace();
@@ -514,223 +617,136 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        accountId: btn.dataset.accountId,
-                        region: btn.dataset.region,
-                        clusterName: btn.dataset.clusterName,
-                        nodegroupName: btn.dataset.nodegroupName,
+                        accountId: '{{ cluster.account_id }}', region: '{{ cluster.region }}',
+                        clusterName: '{{ cluster.name }}', nodegroupName: btn.dataset.nodegroupName,
                     }),
                 });
-
                 const result = await response.json();
                 if (response.ok) {
-                    btn.innerHTML = '<i data-feather="check-circle"></i> Initiated';
-                    alert(`Upgrade initiated successfully! The page will now reload to reflect the new state.`);
+                    alert(`Upgrade initiated successfully!`);
                     window.location.reload();
                 } else {
-                    btn.innerHTML = '<i data-feather="alert-triangle"></i> Failed';
                     alert(`Upgrade failed: ${result.error}`);
                     btn.disabled = false;
                 }
-                feather.replace();
             });
         });
 
-        // --- LOG STREAMING LOGIC ---
+        // Enhanced LOG STREAMING LOGIC
         const logSelector = document.getElementById('log-type-selector');
         const logOutput = document.getElementById('log-output');
         let eventSource;
-        let logBuffer = [];
-        let renderScheduled = false;
-
-        function renderLogs() {
-            if (!logBuffer.length) {
-                renderScheduled = false;
-                return;
-            }
-            const fragment = document.createDocumentFragment();
-            logBuffer.forEach(line => {
-                fragment.appendChild(document.createTextNode(line));
-            });
-            logBuffer = [];
-
-            const shouldScroll = logOutput.scrollTop + logOutput.clientHeight >= logOutput.scrollHeight - 20;
-            logOutput.appendChild(fragment);
-            if (shouldScroll) {
-                logOutput.scrollTop = logOutput.scrollHeight;
-            }
-            renderScheduled = false;
-        }
-
-        function scheduleRender() {
-            if (!renderScheduled) {
-                renderScheduled = true;
-                requestAnimationFrame(renderLogs);
-            }
-        }
-
         function startLogStream() {
-            if (eventSource) {
-                eventSource.close();
-            }
-            logBuffer = [];
+            if (eventSource) eventSource.close();
             logOutput.textContent = 'Connecting to log stream...';
             const logType = logSelector.value;
             const url = `/api/logs/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}/${logType}`;
-
             eventSource = new EventSource(url);
             let firstMessage = true;
-
             eventSource.onmessage = function(event) {
-                if (firstMessage) {
-                    logOutput.textContent = ''; // Clear "Connecting..." message
-                    firstMessage = false;
-                }
+                if (firstMessage) { logOutput.textContent = ''; firstMessage = false; }
                 const data = JSON.parse(event.data);
-
-                if (data.message && !data.timestamp) { // Handle simple status messages
-                    logBuffer.push(`${data.message}\n`);
-                    if (!logOutput.textContent.includes('No new log events')) {
-                       eventSource.close();
-                    }
-                } else if (data.error) {
-                    logBuffer.push(`\n\nERROR: ${data.error}`);
+                if (data.error) {
+                    logOutput.textContent += `\nERROR: ${data.error}`;
                     eventSource.close();
                 } else {
-                    const timestamp = data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString();
-                    const message = data.message || JSON.stringify(data);
-                    logBuffer.push(`[${timestamp}] ${message}\n`);
+                    const line = data.message || JSON.stringify(data);
+                    const timestamp = data.timestamp ? new Date(data.timestamp).toISOString() : '';
+                    logOutput.textContent += `[${timestamp}] ${line}\n`;
                 }
-                scheduleRender();
+                logOutput.scrollTop = logOutput.scrollHeight;
             };
-
             eventSource.onerror = function() {
-                logBuffer.push('\n\nConnection to log stream lost or stream ended.');
-                scheduleRender();
+                logOutput.textContent += '\n\nConnection to log stream lost or stream ended.';
                 eventSource.close();
             };
         }
+        if(logSelector) logSelector.addEventListener('change', startLogStream);
 
-        if(logSelector) {
-            logSelector.addEventListener('change', startLogStream);
-            const logsTabButton = document.querySelector('button[onclick*="logs"]');
-            logsTabButton.addEventListener('click', () => {
-                if (logOutput.textContent === 'Select a log type to begin streaming...') {
-                    startLogStream();
-                }
-            }, { once: true });
-        }
-
-        // --- Observability Metrics ---
+        // Enhanced Observability Metrics Logic
         const observabilityTabButton = document.querySelector('button[onclick*="observability"]');
         let metricsLoaded = false;
         let metricCharts = {};
-
-        function getChartBaseOptions(yLabel = '') {
+        function getChartBaseOptions() {
             return {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'time', time: { unit: 'hour', displayFormats: { hour: 'HH:mm' }}, ticks: { color: '#94a3b8' }, grid: { color: '#334155' }},
-                    y: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: '#334155' }, title: { display: !!yLabel, text: yLabel, color: '#94a3b8' }}
+                    x: { type: 'time', time: { unit: 'hour', displayFormats: { hour: 'HH:mm' }}, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border-color)' }},
+                    y: { beginAtZero: true, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border-color)' }}
                 },
-                plugins: {
-                    legend: { position: 'bottom', labels: { color: '#aab7b8', usePointStyle: true, boxHeight: 8, padding: 20 } },
-                    tooltip: { backgroundColor: '#0F172A', titleColor: '#e2e8f0', bodyColor: '#cbd5e0', borderColor: '#334155', borderWidth: 1 }
-                },
+                plugins: { legend: { position: 'bottom', labels: { color: 'var(--text-secondary)', usePointStyle: true, boxHeight: 8, padding: 20 } }},
                 interaction: { mode: 'index', intersect: false },
                 elements: { point: { radius: 0 } }
             };
         }
-
-        function renderMetricChart(canvasId, datasets, yLabel = '') {
+        function renderMetricChart(canvasId, datasets) {
             const ctx = document.getElementById(canvasId);
             if (!ctx) return;
             if (metricCharts[canvasId]) metricCharts[canvasId].destroy();
-
-            const data = {
+            metricCharts[canvasId] = new Chart(ctx, { type: 'line', data: {
                 datasets: datasets.map(ds => ({
                     label: ds.label,
                     data: ds.timestamps.map((ts, i) => ({ x: ts, y: ds.values[i] })),
                     borderColor: ds.color, borderWidth: 2, tension: 0.1
                 }))
-            };
-
-            metricCharts[canvasId] = new Chart(ctx, { type: 'line', data: data, options: getChartBaseOptions(yLabel) });
+            }, options: getChartBaseOptions()});
         }
-
         function processAndRenderCharts(metricsData) {
-            const simpleChart = (canvasId, dataKey, label, color, yLabel) => {
-                if (metricsData[dataKey] && metricsData[dataKey].values.length > 0) {
-                    renderMetricChart(canvasId, [{...metricsData[dataKey], label, color}], yLabel);
+            const chartConfigs = [
+                { id: 'requestsChart', key: 'requests', label: 'Total', color: '#4A90E2' },
+                { id: 'requests4xxChart', key: 'requests_4xx', label: '4XX Errors', color: '#F5A623' },
+                { id: 'requests5xxChart', key: 'requests_5xx', label: '5XX Errors', color: '#D0021B' },
+                { id: 'requests429Chart', key: 'requests_429', label: '429 Throttles', color: '#BD10E0' },
+                { id: 'storageSizeChart', key: 'storage_size', label: 'Size', color: '#50E3C2' }
+            ];
+            chartConfigs.forEach(c => {
+                if (metricsData[c.key] && metricsData[c.key].values.length > 0) {
+                    renderMetricChart(c.id, [{...metricsData[c.key], label: c.label, color: c.color}]);
                 }
-            };
-            const multiLineChart = (canvasId, series, yLabel) => {
-                const datasets = series.map(s => metricsData[s.key] && metricsData[s.key].values.length > 0 ? { ...metricsData[s.key], label: s.label, color: s.color } : null).filter(Boolean);
-                if(datasets.length > 0) renderMetricChart(canvasId, datasets, yLabel);
-            };
-
-            simpleChart('requestsChart', 'requests', 'Total', '#4A90E2', 'Count');
-            simpleChart('requests4xxChart', 'requests_4xx', '4XX Errors', '#F5A623', 'Count');
-            simpleChart('requests5xxChart', 'requests_5xx', '5XX Errors', '#D0021B', 'Count');
-            simpleChart('requests429Chart', 'requests_429', '429 Throttles', '#BD10E0', 'Count');
-            simpleChart('storageSizeChart', 'storage_size', 'Size', '#50E3C2', 'Bytes');
-            multiLineChart('schedulerAttemptsChart', [
-                { key: 'scheduler_attempts_scheduled', label: 'Scheduled', color: '#7ED321' },
-                { key: 'scheduler_attempts_unschedulable', label: 'Unschedulable', color: '#F5A623' },
-                { key: 'scheduler_attempts_error', label: 'Error', color: '#D0021B' }
-            ], 'Count');
-            multiLineChart('pendingPodsChart', [
-                { key: 'pending_pods_gated', label: 'Gated', color: '#4A90E2' },
-                { key: 'pending_pods_unschedulable', label: 'Unschedulable', color: '#F5A623' },
-                { key: 'pending_pods_activeq', label: 'ActiveQ', color: '#7ED321' },
-                { key: 'pending_pods_backoff', label: 'Backoff', color: '#F8E71C' }
-            ], 'Count');
-            multiLineChart('latencyChart', [
-                { key: 'latency_get', label: 'GET P99', color: '#4A90E2' },
-                { key: 'latency_post', label: 'POST P99', color: '#50E3C2' },
-                { key: 'latency_put', label: 'PUT P99', color: '#F5A623' },
-                { key: 'latency_delete', label: 'DELETE P99', color: '#D0021B' }
-            ], 'Seconds');
-            multiLineChart('inflightChart', [
-                { key: 'inflight_mutating', label: 'Mutating', color: '#F5A623' },
-                { key: 'inflight_readonly', label: 'Read-only', color: '#4A90E2' }
-            ], 'Count');
+            });
+            const multiLineCharts = [
+                { id: 'schedulerAttemptsChart', series: [{ k: 'scheduler_attempts_scheduled', l: 'Scheduled', c: '#7ED321' }, { k: 'scheduler_attempts_unschedulable', l: 'Unschedulable', c: '#F5A623' }, { k: 'scheduler_attempts_error', l: 'Error', c: '#D0021B' }] },
+                { id: 'pendingPodsChart', series: [{ k: 'pending_pods_gated', l: 'Gated', c: '#4A90E2' }, { k: 'pending_pods_unschedulable', l: 'Unschedulable', c: '#F5A623' }, { k: 'pending_pods_activeq', l: 'ActiveQ', c: '#7ED321' }] },
+                { id: 'latencyChart', series: [{ k: 'latency_get', l: 'GET P99', c: '#4A90E2' }, { k: 'latency_post', l: 'POST P99', c: '#50E3C2' }, { k: 'latency_delete', l: 'DELETE P99', c: '#D0021B' }] },
+                { id: 'inflightChart', series: [{ k: 'inflight_mutating', l: 'Mutating', c: '#F5A623' }, { k: 'inflight_readonly', l: 'Read-only', c: '#4A90E2' }] }
+            ];
+            multiLineCharts.forEach(c => {
+                const datasets = c.series.map(s => metricsData[s.k] && metricsData[s.k].values.length > 0 ? { ...metricsData[s.k], label: s.l, color: s.c } : null).filter(Boolean);
+                if(datasets.length > 0) renderMetricChart(c.id, datasets);
+            });
         }
-
         async function loadMetrics() {
             if (metricsLoaded) return;
-            document.getElementById('metrics-loading-state').style.display = 'block';
-            document.querySelector('#observability .metrics-grid').style.display = 'none';
-            document.getElementById('metrics-error-state').style.display = 'none';
+            const loadingState = document.getElementById('metrics-loading-state');
+            const grid = document.querySelector('#observability .metrics-grid');
+            const errorState = document.getElementById('metrics-error-state');
+            
+            loadingState.style.display = 'block';
+            grid.style.display = 'none';
+            errorState.style.display = 'none';
 
             try {
                 const url = `/api/metrics/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}`;
                 const response = await fetch(url);
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to fetch metrics');
-                }
+                if (!response.ok) throw new Error((await response.json()).error || 'Failed to fetch metrics');
+                
                 const metricsData = await response.json();
-
-                if (Object.keys(metricsData).length === 0 || Object.values(metricsData).every(d => d.values && d.values.length === 0)) {
-                    throw new Error("No metrics data returned. Please ensure Container Insights is enabled and the cluster has been active recently.");
+                if (Object.keys(metricsData).length === 0 || Object.values(metricsData).every(d => d.values.length === 0)) {
+                    throw new Error("No metrics data returned. Ensure Container Insights is enabled.");
                 }
-
+                
                 processAndRenderCharts(metricsData);
                 metricsLoaded = true;
-                document.querySelector('#observability .metrics-grid').style.display = 'grid';
+                grid.style.display = 'grid';
             } catch (error) {
-                console.error('Failed to load metrics:', error);
-                const errorState = document.getElementById('metrics-error-state');
                 errorState.querySelector('.error-message').textContent = error.message;
                 errorState.style.display = 'block';
             } finally {
-                document.getElementById('metrics-loading-state').style.display = 'none';
+                loadingState.style.display = 'none';
             }
         }
-
-        if (observabilityTabButton) {
-            observabilityTabButton.addEventListener('click', loadMetrics, { once: true });
-        }
+        if (observabilityTabButton) observabilityTabButton.addEventListener('click', loadMetrics, { once: true });
     });
 </script>
 {% endblock %}
+

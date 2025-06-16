@@ -1,3 +1,5 @@
+# --- START OF FILE app.py ---
+
 from fastapi import FastAPI, Request, Form, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +29,7 @@ from aws_data_fetcher import (
     upgrade_nodegroup_version,
     stream_cloudwatch_logs,
     get_cluster_metrics,
+    manage_workload  # <-- INTEGRATED NEW IMPORT
 )
 
 # Load environment variables from your .env file
@@ -201,14 +204,53 @@ async def refresh_data(user: dict = Depends(get_current_user)):
     logging.info(f"Cache cleared by user: {user.get('email')}")
     return JSONResponse(content={"status": "success", "message": "Cache cleared."})
 
+# --- NEW API ROUTE FOR WORKLOAD ACTIONS ---
+@app.post("/api/actions/{account_id}/{region}/{cluster_name}", tags=["API"])
+async def api_manage_workload(request: Request, account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
+    if isinstance(user, JSONResponse): return user
+    
+    action_details = await request.json()
+    
+    # Determine if a role is needed for cross-account access
+    role_arn = None
+    try:
+        self_account_id = boto3.client('sts').get_caller_identity().get('Account')
+        if account_id != self_account_id:
+            role_arn = get_role_arn_for_account(account_id)
+            if not role_arn:
+                return JSONResponse(status_code=404, content={"error": f"Role ARN not found for target account {account_id}."})
+    except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
+         return JSONResponse(status_code=500, content={"error": f"Could not determine self-account ID: {e}"})
+
+    # Call the backend function to perform the action
+    result = manage_workload(
+        account_id=account_id,
+        region=region,
+        cluster_name=cluster_name,
+        role_arn=role_arn,
+        action_details=action_details
+    )
+    
+    if "error" in result:
+        return JSONResponse(status_code=400, content=result)
+    return JSONResponse(content=result)
+
 @app.post("/api/upgrade-nodegroup", tags=["API"])
 async def api_upgrade_nodegroup(request: Request, user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
     data = await request.json()
     account_id = data.get("accountId")
-    role_arn = get_role_arn_for_account(account_id)
-    if not role_arn and account_id != boto3.client('sts').get_caller_identity().get('Account'):
-        return JSONResponse(status_code=404, content={"error": f"Role ARN not found for account {account_id}."})
+    
+    role_arn = None
+    try:
+        self_account_id = boto3.client('sts').get_caller_identity().get('Account')
+        if account_id != self_account_id:
+            role_arn = get_role_arn_for_account(account_id)
+            if not role_arn:
+                return JSONResponse(status_code=404, content={"error": f"Role ARN not found for account {account_id}."})
+    except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
+        return JSONResponse(status_code=500, content={"error": f"Could not determine self-account ID: {e}"})
+
     result = upgrade_nodegroup_version(account_id, data.get("region"), data.get("clusterName"), data.get("nodegroupName"), role_arn)
     if "error" in result: return JSONResponse(status_code=400, content=result)
     return JSONResponse(content=result)
@@ -216,16 +258,16 @@ async def api_upgrade_nodegroup(request: Request, user: dict = Depends(get_curre
 @app.get("/api/logs/{account_id}/{region}/{cluster_name}/{log_type}", tags=["API"])
 async def get_logs(account_id: str, region: str, cluster_name: str, log_type: str, user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
-    try:
-        self_account_id = boto3.client('sts').get_caller_identity().get('Account')
-    except (ClientError, NoCredentialsError, PartialCredentialsError):
-        return JSONResponse(status_code=500, content={"error": "Could not determine application's account ID."})
     
     role_arn = None
-    if account_id != self_account_id:
-        role_arn = get_role_arn_for_account(account_id)
-        if not role_arn:
-            return JSONResponse(status_code=404, content={"error": f"Role ARN not found for account {account_id}."})
+    try:
+        self_account_id = boto3.client('sts').get_caller_identity().get('Account')
+        if account_id != self_account_id:
+            role_arn = get_role_arn_for_account(account_id)
+            if not role_arn:
+                return JSONResponse(status_code=404, content={"error": f"Role ARN not found for account {account_id}."})
+    except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
+        return JSONResponse(status_code=500, content={"error": f"Could not determine application's account ID: {e}"})
             
     log_group_name = f"/aws/eks/{cluster_name}/cluster"
     return StreamingResponse(
@@ -236,16 +278,16 @@ async def get_logs(account_id: str, region: str, cluster_name: str, log_type: st
 @app.get("/api/metrics/{account_id}/{region}/{cluster_name}", tags=["API"])
 async def api_get_cluster_metrics(account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
+    
+    role_arn = None
     try:
         self_account_id = boto3.client('sts').get_caller_identity().get('Account')
-    except (ClientError, NoCredentialsError, PartialCredentialsError):
-        return JSONResponse(status_code=500, content={"error": "Could not determine application's account ID."})
-
-    role_arn = None
-    if account_id != self_account_id:
-        role_arn = get_role_arn_for_account(account_id)
-        if not role_arn:
-            return JSONResponse(status_code=404, content={"error": f"Role ARN not found for account {account_id}."})
+        if account_id != self_account_id:
+            role_arn = get_role_arn_for_account(account_id)
+            if not role_arn:
+                return JSONResponse(status_code=404, content={"error": f"Role ARN not found for account {account_id}."})
+    except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
+        return JSONResponse(status_code=500, content={"error": f"Could not determine application's account ID: {e}"})
             
     metrics = get_cluster_metrics(account_id, region, cluster_name, role_arn)
     return JSONResponse(content=metrics)
