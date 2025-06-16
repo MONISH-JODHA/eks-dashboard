@@ -1,0 +1,30 @@
+{
+    "strict": true,
+    "debug": true,
+    "sp": {
+        "entityId": "http://52.71.77.124:8000/saml/metadata",
+        "assertionConsumerService": {
+            "url": "http://52.71.77.124:8000/saml/acs",
+            "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+        },
+        "singleLogoutService": {
+            "url": "http://52.71.77.124:8000/saml/sls",
+            "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        },
+        "NameIDFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified",
+        "x509cert": "",
+        "privateKey": ""
+    },
+    "idp": {
+        "entityId": "https://portal.sso.us-east-1.amazonaws.com/saml/assertion/NDkxMDg1NDAwNTUyX2lucy03ODNhYjRjNjE2Mjc0NTI1",
+        "singleSignOnService": {
+            "url": "https://portal.sso.us-east-1.amazonaws.com/saml/assertion/NDkxMDg1NDAwNTUyX2lucy03ODNhYjRjNjE2Mjc0NTI1",
+            "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        },
+        "singleLogoutService": {
+            "url": "https://portal.sso.us-east-1.amazonaws.com/saml/logout/NDkxMDg1NDAwNTUyX2lucy03ODNhYjRjNjE2Mjc0NTI1",
+            "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        },
+        "x509cert": "MIIDBzCCAe+gAwIBAgIFAIJdma4wDQYJKoZIhvcNAQELBQAwRTEWMBQGA1UEAwwNYW1hem9uYXdzLmNvbTENMAsGA1UECwwESURBUzEPMA0GA1UECgwGQW1hem9uMQswCQYDVQQGEwJVUzAeFw0yNTA2MTAxMTM2MzZaFw0zMDA2MTAxMTM2MzZaMEUxFjAUBgNVBAMMDWFtYXpvbmF3cy5jb20xDTALBgNVBAsMBElEQVMxDzANBgNVBAoMBkFtYXpvbjELMAkGA1UEBhMCVVMwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDSTD3W64qiA/uHFuFxiVcyPbeRXtltpW+Uoy5eBZb8QCBSLK+PpP0urgltEIHr5yAlj+pFdbM4Sa1Ruu9t7lnqJSqjOJ2Apnb5n2zA5K3MihAjj/TYAD2LdTx0d2/EevqTeSsbJY5Dm6wzKaCDwJJ3p0NeSW6e1uPx9To3v3aufqtpr1mRWDuh47JZd+F2WmkabQWN/hQ5E8HDHBnyGr+XuPZN5G9d5tX/TBckHOEHjm+5B0/WZxXym1pUA4eun5lrrApS9KNZeZgtWvfCOJ8Gb03xbd+NhNfSbQgbOAf6m6FWhvhxFYVoUBlWcyX7caEzq6LtWztW+vFjMmtDGwlBAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAE7Gsax8cytdFqYPSxhMSIcOyh0qNAnbRHhLN+X7l7XUYSo1KZeoExgZj7nFwBpOJ1DMMgLHMt85rmpJpy97H8hufc0UiKCV8DY2HqNhcPR0V4qgrbw75B+oYkyZMl5t8JBKud+CMak+gJ/MH2hORL2v9/8tuBJ6k9k74pgLeSc710A5+yy1m7ye0MTyFpIttuD7ISWmZkknFBq8uSrPQKNjjaoejOiMOFr7omMV46tM5NitJ2nAatMwrJGB7JZrN7kL70azbHk+f2Y6szYAlRn1uHkg73r8DLzl3gNid160dFD4BgxvVePZlvuZPu7N7++5++E3QsXakRgJubP6SYE="
+    }
+}

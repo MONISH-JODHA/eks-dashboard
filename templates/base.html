@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}EKS Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h3>EKS Dashboard</h3>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('read_dashboard') }}" class="nav-item active">
+                    <i data-feather="grid"></i>
+                    <span>Dashboard</span>
+                </a>
+                <!-- Add other navigation links here if needed -->
+            </nav>
+            <div class="sidebar-filters" id="dashboard-filters">
+                <!-- Filter content will be injected by dashboard.html -->
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="main-header">
+                <h1 class="page-title">{% block page_title %}Dashboard Overview{% endblock %}</h1>
+                <div class="header-actions">
+                    <span id="last-refreshed-time" class="last-refreshed"></span>
+                    <button id="refresh-data-btn" class="action-btn" title="Refresh Data">
+                     <i data-feather="refresh-cw"></i>
+                    </button>
+                </div>
+            </header>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <footer>
+        <!-- Optional footer content -->
+    </footer>
+    <script>
+        feather.replace() // Initialize Feather Icons
+    </script>
+    {% block scripts_extra %}{% endblock %}
+</body>
+</html>

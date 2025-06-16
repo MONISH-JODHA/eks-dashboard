@@ -1,0 +1,504 @@
+
+
+{% extends "base.html" %}
+
+{% block title %}Cluster Details: {{ cluster.name }}{% endblock %}
+{% block page_title %}Cluster Details{% endblock %}
+
+{% block head_extra %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        .chart-widget-content {
+            height: 300px;
+            padding: 10px;
+        }
+        #observability .widget-header {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        #observability .widget-header h2 {
+            font-size: 1rem;
+            font-weight: 500;
+            margin: 0;
+        }
+        .error-message {
+            color: #f87171;
+            background-color: rgba(248, 113, 113, 0.1);
+            border: 1px solid rgba(248, 113, 113, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <a href="{{ url_for('read_dashboard') }}" class="back-link"><i data-feather="arrow-left"></i> Back to Dashboard</a>
+    <h2 class="cluster-detail-title">{{ cluster.name or "Unknown Cluster" }}</h2>
+
+    {% if errors %}
+        <div class="error-message-box">
+            <strong>Error fetching cluster details:</strong>
+            <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+        </div>
+    {% else %}
+    <div class="tab-container">
+        <div class="tab-nav">
+            <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
+            <button class="tab-link" onclick="openTab(event, 'nodegroups')"><i data-feather="hard-drive"></i>Compute</button>
+            <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
+            <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="activity"></i>Observability</button>
+            <button class="tab-link" onclick="openTab(event, 'logs')"><i data-feather="file-text"></i>Logs</button>
+            <button class="tab-link" onclick="openTab(event, 'security')"><i data-feather="shield"></i>Security</button>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="overview" class="tab-content active">
+            <div class="widget">
+                <div class="widget-header"><h2>Cluster Summary</h2></div>
+                <div class="widget-content">
+                    <div class="summary-grid">
+                        <div><strong>ARN:</strong> <span class="text-muted code">{{ cluster.arn }}</span></div>
+                        <div><strong>Status:</strong> <span class="status-badge status-{{ cluster.status.lower() if cluster.status else 'unknown' }}">{{ cluster.status }}</span></div>
+                        <div><strong>Region:</strong> <span class="text-muted">{{ cluster.region }}</span></div>
+                        <div><strong>Account ID:</strong> <span class="text-muted">{{ cluster.account_id }}</span></div>
+                        <div><strong>K8s Version:</strong> <span class="text-muted">{{ cluster.version }}</span></div>
+                        <div><strong>Platform Version:</strong> <span class="text-muted">{{ cluster.platformVersion }}</span></div>
+                        <div><strong>Created At:</strong> <span class="text-muted">{{ cluster.createdAt.strftime('%Y-%m-%d') if cluster.createdAt else 'N/A' }}</span></div>
+                        <div><strong>OIDC Provider:</strong> <span class="text-muted code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="widget">
+                <div class="widget-header"><h2>Networking & Security</h2></div>
+                <div class="widget-content">
+                     <div class="summary-grid">
+                        <div><strong>VPC ID:</strong> <span class="text-muted code">{{ cluster.networking.vpcId or 'N/A' }}</span></div>
+                        <div><strong>Public Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPublicAccess else 'deleting' }}">{{ 'Enabled' if cluster.networking.endpointPublicAccess else 'Disabled' }}</span></div>
+                        <div><strong>Private Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPrivateAccess else 'deleting' }}">{{ 'Enabled' if cluster.networking.endpointPrivateAccess else 'Disabled' }}</span></div>
+                        <div><strong>Subnets:</strong> <div class="tags-container" style="margin-top: 5px;">{% for id in cluster.networking.subnetIds %}<span class="tag code">{{ id }}</span>{% else %}<span>N/A</span>{% endfor %}</div></div>
+                    </div>
+                </div>
+            </div>
+
+            {% if cluster.health_issues %}
+            <div class="widget">
+                <div class="widget-header"><h2>Health Issues</h2></div>
+                <div class="widget-content">
+                    {% for issue in cluster.health_issues %}
+                    <div class="health-issue-box">
+                        <strong class="code">{{ issue.code }}</strong>
+                        <p>{{ issue.message }}</p>
+                        <span>Resource IDs: {% for id in issue.resourceIds %}<span class="tag code">{{ id }}</span>{% endfor %}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Nodegroups Tab -->
+        <div id="nodegroups" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2>Nodegroups & Compute Nodes</h2></div>
+                <div class="widget-content">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Name</th><th>Status</th><th>Mode</th><th>Instance Type(s)</th><th>K8s Version</th><th>Action</th></tr></thead>
+                            <tbody>
+                                {% for ng in cluster.nodegroups_data %}
+                                <tr>
+                                    <td>{{ ng.name }}</td>
+                                    <td><span class="status-badge status-{{ ng.status.lower() if ng.status else 'unknown' }}">{{ ng.status }}</span></td>
+                                    <td>
+                                        {% if ng.is_karpenter_node %}
+                                            <span class="tag code">Auto Mode</span>
+                                        {% else %}
+                                            <span class="tag">Managed</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ ng.instanceTypes | join(', ') }}</td>
+                                    <td>{{ ng.version }}</td>
+                                    <td>
+                                        {% if not ng.is_karpenter_node and ng.releaseVersion and ng.version and ng.releaseVersion < ng.version %}
+                                        <button class="action-btn upgrade-btn" 
+                                                data-account-id="{{ cluster.account_id }}"
+                                                data-region="{{ cluster.region }}"
+                                                data-cluster-name="{{ cluster.name }}"
+                                                data-nodegroup-name="{{ ng.name }}">
+                                            <i data-feather="chevrons-up"></i> Upgrade Now
+                                        </button>
+                                        {% else %}
+                                        <span class="text-muted">N/A</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="6" class="text-muted" style="text-align: center;">No nodegroups or compute nodes found for this cluster.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Addons Tab -->
+        <div id="addons" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2>Cluster Add-ons</h2></div>
+                <div class="widget-content">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Name</th><th>Version</th><th>Status</th><th>Health</th><th>Owner</th><th>Publisher</th><th>Modified At</th></tr></thead>
+                            <tbody>
+                                {% for addon in cluster.addons %}
+                                <tr>
+                                    <td>{{ addon.addonName }}</td>
+                                    <td>{{ addon.addonVersion }}</td>
+                                    <td><span class="status-badge status-{{ addon.status.lower() if addon.status else 'unknown' }}">{{ addon.status }}</span></td>
+                                    <td><span class="health-badge health-{{ addon.health_status.lower().replace('_', '-') }}">{{ addon.health_status.replace('_', ' ') | title }}</span></td>
+                                    <td>{{ addon.owner }}</td>
+                                    <td>{{ addon.publisher }}</td>
+                                    <td>{{ addon.modifiedAt.strftime('%Y-%m-%d') if addon.modifiedAt else 'N/A' }}</td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="7" class="text-muted" style="text-align: center;">No add-ons found for this cluster.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Observability Tab -->
+        <div id="observability" class="tab-content">
+            <div id="metrics-loading-state" style="display: none; text-align: center; padding: 40px;">
+                <p class="text-muted">Loading metrics...</p>
+            </div>
+            <div id="metrics-error-state" style="display: none; padding: 20px 0;">
+                 <p class="error-message">Could not load metrics data.</p>
+            </div>
+            <div class="metrics-grid" style="display: none;">
+                <div class="widget"><div class="widget-header"><h2>Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="requestsChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Requests HTTP 4XX</h2></div><div class="widget-content chart-widget-content"><canvas id="requests4xxChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Requests HTTP 5XX</h2></div><div class="widget-content chart-widget-content"><canvas id="requests5xxChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Requests HTTP 429</h2></div><div class="widget-content chart-widget-content"><canvas id="requests429Chart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Storage Size</h2></div><div class="widget-content chart-widget-content"><canvas id="storageSizeChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Scheduler Attempts</h2></div><div class="widget-content chart-widget-content"><canvas id="schedulerAttemptsChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>Pending Pods</h2></div><div class="widget-content chart-widget-content"><canvas id="pendingPodsChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>API Server Request Latency</h2></div><div class="widget-content chart-widget-content"><canvas id="latencyChart"></canvas></div></div>
+                <div class="widget"><div class="widget-header"><h2>API Server Inflight Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="inflightChart"></canvas></div></div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="logs" class="tab-content">
+            <div class="widget">
+                <div class="widget-header">
+                    <h2>Control Plane Logs (Last 10 minutes)</h2>
+                    <select id="log-type-selector">
+                        <option value="api">api</option>
+                        <option value="audit">audit</option>
+                        <option value="authenticator">authenticator</option>
+                        <option value="scheduler">scheduler</option>
+                        <option value="controllerManager">controllerManager</option>
+                    </select>
+                </div>
+                <div class="widget-content">
+                    <pre id="log-output" class="log-box">Select a log type to begin streaming...</pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Insights Tab -->
+        <div id="security" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2>Security Best Practices Checklist</h2></div>
+                <div class="widget-content">
+                    {% if cluster.security_insights %}
+                    <table class="data-table security-table">
+                         <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
+                         <tbody>
+                            {% for key, insight in cluster.security_insights.items() %}
+                            <tr>
+                                <td>{{ insight.description }}</td>
+                                <td>
+                                    <span class="status-badge status-{{ 'active' if insight.status else 'failed' }}">
+                                        {{ 'Passing' if insight.status else 'Attention' }}
+                                    </span>
+                                </td>
+                                <td class="text-muted">
+                                    {% if key == 'latest_platform_version' and not insight.status %}
+                                        Current: {{ insight.current }}, Latest: {{ insight.latest }}
+                                    {% elif key == 'logging_enabled' and not insight.status %}
+                                        Missing: {{ insight.missing_logs | join(', ') }}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                         </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted">Security insights could not be generated for this cluster.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+    function openTab(evt, tabName) {
+        document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
+        document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
+        document.getElementById(tabName).style.display = 'block';
+        evt.currentTarget.classList.add('active');
+        feather.replace();
+    }
+    document.getElementById('overview').style.display = 'block';
+
+    document.addEventListener('DOMContentLoaded', () => {
+        feather.replace();
+
+        document.querySelectorAll('.upgrade-btn').forEach(button => {
+            button.addEventListener('click', async (e) => {
+                const btn = e.currentTarget;
+                if (!confirm(`Are you sure you want to upgrade nodegroup "${btn.dataset.nodegroupName}"? This will start a rolling update of the nodes.`)) return;
+
+                btn.disabled = true;
+                btn.innerHTML = '<i data-feather="loader" class="spin"></i> Upgrading...';
+                feather.replace();
+
+                const response = await fetch('/api/upgrade-nodegroup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        accountId: btn.dataset.accountId,
+                        region: btn.dataset.region,
+                        clusterName: btn.dataset.clusterName,
+                        nodegroupName: btn.dataset.nodegroupName,
+                    }),
+                });
+                
+                const result = await response.json();
+                if (response.ok) {
+                    btn.innerHTML = '<i data-feather="check-circle"></i> Initiated';
+                    alert(`Upgrade initiated successfully! The page will now reload to reflect the new state.`);
+                    window.location.reload();
+                } else {
+                    btn.innerHTML = '<i data-feather="alert-triangle"></i> Failed';
+                    alert(`Upgrade failed: ${result.error}`);
+                    btn.disabled = false;
+                }
+                feather.replace();
+            });
+        });
+
+        // --- CORRECTED LOG STREAMING LOGIC ---
+        const logSelector = document.getElementById('log-type-selector');
+        const logOutput = document.getElementById('log-output');
+        let eventSource;
+        let logBuffer = [];
+        let renderScheduled = false;
+
+        function renderLogs() {
+            if (!logBuffer.length) {
+                renderScheduled = false;
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            logBuffer.forEach(line => {
+                fragment.appendChild(document.createTextNode(line));
+            });
+            logBuffer = [];
+            
+            const shouldScroll = logOutput.scrollTop + logOutput.clientHeight === logOutput.scrollHeight;
+            logOutput.appendChild(fragment);
+            if (shouldScroll) {
+                logOutput.scrollTop = logOutput.scrollHeight;
+            }
+            renderScheduled = false;
+        }
+
+        function scheduleRender() {
+            if (!renderScheduled) {
+                renderScheduled = true;
+                requestAnimationFrame(renderLogs);
+            }
+        }
+
+        function startLogStream() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            logBuffer = [];
+            logOutput.textContent = 'Connecting to log stream...';
+            const logType = logSelector.value;
+            const url = `/api/logs/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}/${logType}`;
+            
+            eventSource = new EventSource(url);
+            let firstMessage = true;
+
+            eventSource.onmessage = function(event) {
+                if (firstMessage) {
+                    logOutput.textContent = ''; // Clear "Connecting..." message
+                    firstMessage = false;
+                }
+                const data = JSON.parse(event.data);
+                
+                if (data.message && firstMessage) {
+                    logBuffer.push(data.message);
+                    if (!data.timestamp) eventSource.close();
+                } else if (data.error) {
+                    logBuffer.push(`\n\nERROR: ${data.error}`);
+                    eventSource.close();
+                } else {
+                    const timestamp = data.timestamp ? new Date(data.timestamp).toISOString() : new Date().toISOString();
+                    const message = data.message || JSON.stringify(data);
+                    logBuffer.push(`[${timestamp}] ${message}\n`);
+                }
+                scheduleRender();
+            };
+
+            eventSource.onerror = function() {
+                logBuffer.push('\n\nConnection to log stream lost or stream ended.');
+                scheduleRender();
+                eventSource.close();
+            };
+        }
+        
+        if(logSelector) {
+            logSelector.addEventListener('change', startLogStream);
+            const logsTabButton = document.querySelector('button[onclick*="logs"]');
+            logsTabButton.addEventListener('click', () => {
+                if (logOutput.textContent === 'Select a log type to begin streaming...') {
+                    startLogStream();
+                }
+            }, { once: true });
+        }
+
+        // --- Observability Metrics ---
+        const observabilityTabButton = document.querySelector('button[onclick*="observability"]');
+        let metricsLoaded = false;
+        let metricCharts = {};
+
+        function getChartBaseOptions(yLabel = '') {
+            return {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { type: 'time', time: { unit: 'hour', displayFormats: { hour: 'HH:mm' }}, ticks: { color: '#94a3b8' }, grid: { color: '#334155' }},
+                    y: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: '#334155' }, title: { display: !!yLabel, text: yLabel, color: '#94a3b8' }}
+                },
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: '#aab7b8', usePointStyle: true, boxHeight: 8, padding: 20 } },
+                    tooltip: { backgroundColor: '#0F172A', titleColor: '#e2e8f0', bodyColor: '#cbd5e0', borderColor: '#334155', borderWidth: 1 }
+                },
+                interaction: { mode: 'index', intersect: false },
+                elements: { point: { radius: 0 } }
+            };
+        }
+
+        function renderMetricChart(canvasId, datasets, yLabel = '') {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) return;
+            if (metricCharts[canvasId]) metricCharts[canvasId].destroy();
+            
+            const data = {
+                datasets: datasets.map(ds => ({
+                    label: ds.label,
+                    data: ds.timestamps.map((ts, i) => ({ x: ts, y: ds.values[i] })),
+                    borderColor: ds.color, borderWidth: 2, tension: 0.1
+                }))
+            };
+            
+            metricCharts[canvasId] = new Chart(ctx, { type: 'line', data: data, options: getChartBaseOptions(yLabel) });
+        }
+
+        function processAndRenderCharts(metricsData) {
+            const simpleChart = (canvasId, dataKey, label, color, yLabel) => {
+                if (metricsData[dataKey] && metricsData[dataKey].values.length > 0) {
+                    renderMetricChart(canvasId, [{...metricsData[dataKey], label, color}], yLabel);
+                }
+            };
+            const multiLineChart = (canvasId, series, yLabel) => {
+                const datasets = series.map(s => metricsData[s.key] && metricsData[s.key].values.length > 0 ? { ...metricsData[s.key], label: s.label, color: s.color } : null).filter(Boolean);
+                if(datasets.length > 0) renderMetricChart(canvasId, datasets, yLabel);
+            };
+
+            simpleChart('requestsChart', 'requests', 'Total', '#4A90E2', 'Count');
+            simpleChart('requests4xxChart', 'requests_4xx', '4XX Errors', '#F5A623', 'Count');
+            simpleChart('requests5xxChart', 'requests_5xx', '5XX Errors', '#D0021B', 'Count');
+            simpleChart('requests429Chart', 'requests_429', '429 Throttles', '#BD10E0', 'Count');
+            simpleChart('storageSizeChart', 'storage_size', 'Size', '#50E3C2', 'Bytes');
+            multiLineChart('schedulerAttemptsChart', [
+                { key: 'scheduler_attempts_scheduled', label: 'Scheduled', color: '#7ED321' },
+                { key: 'scheduler_attempts_unschedulable', label: 'Unschedulable', color: '#F5A623' },
+                { key: 'scheduler_attempts_error', label: 'Error', color: '#D0021B' }
+            ], 'Count');
+            multiLineChart('pendingPodsChart', [
+                { key: 'pending_pods_gated', label: 'Gated', color: '#4A90E2' },
+                { key: 'pending_pods_unschedulable', label: 'Unschedulable', color: '#F5A623' },
+                { key: 'pending_pods_activeq', label: 'ActiveQ', color: '#7ED321' },
+                { key: 'pending_pods_backoff', label: 'Backoff', color: '#F8E71C' }
+            ], 'Count');
+            multiLineChart('latencyChart', [
+                { key: 'latency_get', label: 'GET P99', color: '#4A90E2' },
+                { key: 'latency_post', label: 'POST P99', color: '#50E3C2' },
+                { key: 'latency_put', label: 'PUT P99', color: '#F5A623' },
+                { key: 'latency_delete', label: 'DELETE P99', color: '#D0021B' }
+            ], 'Seconds');
+            multiLineChart('inflightChart', [
+                { key: 'inflight_mutating', label: 'Mutating', color: '#F5A623' },
+                { key: 'inflight_readonly', label: 'Read-only', color: '#4A90E2' }
+            ], 'Count');
+        }
+
+        async function loadMetrics() {
+            if (metricsLoaded) return;
+            document.getElementById('metrics-loading-state').style.display = 'block';
+            document.querySelector('#observability .metrics-grid').style.display = 'none';
+            document.getElementById('metrics-error-state').style.display = 'none';
+
+            try {
+                const url = `/api/metrics/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}`;
+                const response = await fetch(url);
+                const metricsData = await response.json();
+                
+                if (!response.ok) throw new Error(metricsData.error || 'Failed to fetch metrics');
+                if (Object.keys(metricsData).length === 0 || Object.values(metricsData).every(d => d.values.length === 0)) {
+                    throw new Error("No metrics data returned. Please ensure Container Insights is enabled and the cluster has been active recently.");
+                }
+                
+                processAndRenderCharts(metricsData);
+                metricsLoaded = true;
+                document.querySelector('#observability .metrics-grid').style.display = 'grid';
+            } catch (error) {
+                console.error('Failed to load metrics:', error);
+                const errorState = document.getElementById('metrics-error-state');
+                errorState.querySelector('.error-message').textContent = error.message;
+                errorState.style.display = 'block';
+            } finally {
+                document.getElementById('metrics-loading-state').style.display = 'none';
+            }
+        }
+
+        if (observabilityTabButton) {
+            observabilityTabButton.addEventListener('click', loadMetrics, { once: true });
+        }
+    });
+</script>
+{% endblock %}
