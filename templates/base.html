@@ -25,6 +25,12 @@
             <div class="sidebar-filters" id="dashboard-filters">
                 <!-- Filter content will be injected by dashboard.html -->
             </div>
+            <div class="sidebar-footer">
+                 <a href="{{ url_for('saml_logout') }}" class="nav-item">
+                    <i data-feather="log-out"></i>
+                    <span>Logout</span>
+                </a>
+            </div>
         </aside>
 
         <main class="main-content">

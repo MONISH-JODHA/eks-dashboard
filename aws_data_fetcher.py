@@ -1,6 +1,7 @@
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 from datetime import datetime, timezone, timedelta
+from dateutil.relativedelta import relativedelta
 import os
 import json
 from collections import Counter
@@ -17,6 +18,9 @@ EKS_EOL_DATES = {
     "1.29": datetime(2025, 11, 1, tzinfo=timezone.utc), "1.30": datetime(2026, 6, 1, tzinfo=timezone.utc),
     "1.31": datetime(2026, 7, 1, tzinfo=timezone.utc), "1.32": datetime(2026, 9, 1, tzinfo=timezone.utc),
 }
+# A conventional tag for associating costs with a cluster. Ensure your resources are tagged.
+COST_TAG_KEY = os.getenv("COST_TAG_KEY", "eks:cluster-name")
+
 
 # --- Utility & Session Management ---
 
@@ -33,7 +37,6 @@ def get_session(role_arn=None):
     """
     if not role_arn:
         try:
-            # Add a check to ensure credentials are valid for the default session
             boto3.client('sts').get_caller_identity()
             return boto3.Session()
         except (NoCredentialsError, PartialCredentialsError, ClientError) as e:
@@ -70,6 +73,57 @@ def get_eks_token(cluster_name: str, role_arn: str = None) -> str:
         if hasattr(e, 'stderr'):
             print(f"AWS CLI Stderr: {e.stderr}")
         raise
+
+# --- New Cost Fetcher Function ---
+
+def get_cost_for_clusters(session, cluster_names: list):
+    """
+    Fetches cost data from AWS Cost Explorer for a list of clusters, grouped by a specific tag.
+    Note: This requires resources (EC2, EBS, ELB, etc.) to be tagged with the COST_TAG_KEY.
+    """
+    if not cluster_names:
+        return {}
+
+    # Cost Explorer is a global service, but for billing data it's best to use us-east-1
+    cost_client = session.client('ce', region_name='us-east-1')
+    now = datetime.now(timezone.utc)
+    start_date = (now - relativedelta(months=1)).strftime('%Y-%m-%d')
+    end_date = now.strftime('%Y-%m-%d')
+
+    try:
+        response = cost_client.get_cost_and_usage(
+            TimePeriod={'Start': start_date, 'End': end_date},
+            Granularity='MONTHLY',
+            Filter={
+                "Tags": {
+                    "Key": COST_TAG_KEY,
+                    "Values": cluster_names,
+                    "MatchOptions": ["EQUALS"]
+                }
+            },
+            Metrics=['UnblendedCost'],
+            GroupBy=[{'Type': 'TAG', 'Key': COST_TAG_KEY}]
+        )
+        
+        cost_map = {}
+        for group in response.get('ResultsByTime', [])[0].get('Groups', []):
+            tag_value = group['Keys'][0].split('$')[-1]
+            amount = float(group['Metrics']['UnblendedCost']['Amount'])
+            cost_map[tag_value] = f"${amount:,.2f}"
+            
+        return cost_map
+
+    except ClientError as e:
+        # Check if the error is due to an opt-in requirement
+        if e.response['Error']['Code'] == 'AccessDeniedException' and 'is not opted in' in e.response['Error']['Message']:
+            print("ERROR: AWS Cost Explorer is not enabled for this account. Please enable it in the billing console.")
+        else:
+            print(f"ERROR fetching cost data: {e}")
+        return {}
+    except Exception as e:
+        print(f"UNEXPECTED ERROR fetching cost data: {e}")
+        return {}
+
 
 # --- Detailed Fetcher Functions ---
 
@@ -132,6 +186,53 @@ def fetch_karpenter_nodes_for_cluster(cluster_name, cluster_endpoint, cluster_ca
         if os.path.exists(ca_path):
             os.remove(ca_path)
     return karpenter_nodes
+
+
+# --- New Granular Kubernetes Object Fetcher ---
+
+def get_kubernetes_workloads(cluster_name, cluster_endpoint, cluster_ca, role_arn=None):
+    """Fetches details about Namespaces and Pods from the Kubernetes API."""
+    print(f"Fetching Kubernetes workloads for {cluster_name}...")
+    workloads = {"namespaces": [], "pods": []}
+    ca_path = f"/tmp/{cluster_name}_ca.crt"
+    try:
+        token = get_eks_token(cluster_name, role_arn)
+        headers = {'Authorization': f'Bearer {token}'}
+        with open(ca_path, "wb") as f:
+            f.write(base64.b64decode(cluster_ca))
+
+        # Fetch Namespaces
+        ns_response = requests.get(f"{cluster_endpoint}/api/v1/namespaces", headers=headers, verify=ca_path, timeout=20)
+        ns_response.raise_for_status()
+        workloads["namespaces"] = ns_response.json().get('items', [])
+
+        # Fetch Pods from all namespaces
+        pods_response = requests.get(f"{cluster_endpoint}/api/v1/pods", headers=headers, verify=ca_path, timeout=45)
+        pods_response.raise_for_status()
+        
+        now = datetime.now(timezone.utc)
+        for pod in pods_response.json().get('items', []):
+            created_at = datetime.fromisoformat(pod['metadata']['creationTimestamp'].replace("Z", "+00:00"))
+            age_delta = now - created_at
+            
+            restarts = 0
+            if pod.get('status', {}).get('containerStatuses'):
+                restarts = sum(cs.get('restartCount', 0) for cs in pod['status']['containerStatuses'])
+            
+            pod['age'] = str(age_delta).split('.')[0] # Human-readable age
+            pod['restarts'] = restarts
+            workloads["pods"].append(pod)
+        
+        print(f"Found {len(workloads['namespaces'])} namespaces and {len(workloads['pods'])} pods for {cluster_name}.")
+
+    except Exception as e:
+        print(f"ERROR fetching Kubernetes workloads for {cluster_name}: {e}")
+        workloads['error'] = str(e)
+    finally:
+        if os.path.exists(ca_path):
+            os.remove(ca_path)
+    return workloads
+
 
 def fetch_addons_for_cluster(eks_client, cluster_name):
     """Fetches details for all EKS addons in a cluster."""
@@ -310,7 +411,7 @@ def get_security_insights(cluster_raw, eks_client):
 
 # --- Main Data Aggregation Functions ---
 
-def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=None):
+def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=None, session=None):
     """Processes raw EKS cluster data into a standardized dictionary."""
     now = datetime.now(timezone.utc)
     ninety_days_from_now = now + timedelta(days=90)
@@ -337,17 +438,30 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
         "health_issues": health_issues, "health_status_summary": health_status,
         "upgrade_insight_status": upgrade_insight, "is_nearing_eol_90_days": nearing_eol,
         "tags": c_raw.get("tags", {}),
+        "cost_30d": "N/A", # Placeholder
     }
 
-    if with_details and eks_client:
-        managed_nodegroups_raw = fetch_managed_nodegroups(eks_client, c_raw["name"])
+    if with_details and eks_client and session:
+        cluster_name = c_raw["name"]
+        
+        # Fetch Cost Data
+        cost_map = get_cost_for_clusters(session, [cluster_name])
+        cluster_data['cost_30d'] = cost_map.get(cluster_name, "N/A")
+
+        # Fetch Nodegroups
+        managed_nodegroups_raw = fetch_managed_nodegroups(eks_client, cluster_name)
         if c_raw.get("endpoint") and c_raw.get("certificateAuthority", {}).get("data"):
             karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(
-                c_raw["name"], c_raw["endpoint"], c_raw["certificateAuthority"]["data"], role_arn
+                cluster_name, c_raw["endpoint"], c_raw["certificateAuthority"]["data"], role_arn
+            )
+            # Fetch Workloads (Pods, Namespaces)
+            cluster_data["workloads"] = get_kubernetes_workloads(
+                cluster_name, c_raw["endpoint"], c_raw["certificateAuthority"]["data"], role_arn
             )
         else:
             karpenter_nodes_raw = []
-            print(f"Skipping Karpenter node fetch for {c_raw['name']} due to missing endpoint or CA data.")
+            cluster_data["workloads"] = {"error": "Missing cluster endpoint or CA data."}
+            print(f"Skipping K8s API fetch for {cluster_name} due to missing endpoint or CA data.")
 
         processed_nodegroups = []
         for ng in managed_nodegroups_raw:
@@ -363,8 +477,8 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
         
         cluster_data.update({
             "nodegroups_data": processed_nodegroups,
-            "addons": fetch_addons_for_cluster(eks_client, c_raw["name"]),
-            "fargate_profiles": fetch_fargate_profiles_for_cluster(eks_client, c_raw["name"]),
+            "addons": fetch_addons_for_cluster(eks_client, cluster_name),
+            "fargate_profiles": fetch_fargate_profiles_for_cluster(eks_client, cluster_name),
             "oidc_provider_url": fetch_oidc_provider_for_cluster(c_raw),
             "networking": c_raw.get("resourcesVpcConfig", {}),
             "security_insights": get_security_insights(c_raw, eks_client)
@@ -376,20 +490,18 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
 def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
     """
     Fetches a summary of all EKS clusters across configured accounts,
-    filtered by the user's group permissions.
+    filtered by the user's group permissions, and includes cost data.
     """
     print("DEBUG_GLED: get_live_eks_data initiated.")
 
-    # --- Start of CORRECTED Group-Based Authentication Logic ---
+    # --- Group-Based Authentication Logic ---
     group_to_account_list = {}
     if group_map_str:
         for mapping in group_map_str.split(','):
             try:
                 group, account_id = mapping.strip().split(':')
-                group = group.strip()
-                account_id = account_id.strip()
-                if group not in group_to_account_list:
-                    group_to_account_list[group] = []
+                group, account_id = group.strip(), account_id.strip()
+                if group not in group_to_account_list: group_to_account_list[group] = []
                 group_to_account_list[group].append(account_id)
             except ValueError:
                 print(f"WARNING: Invalid mapping format in GROUP_TO_ACCOUNT_MAP: '{mapping}'")
@@ -397,16 +509,13 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
     accessible_accounts = set()
     if user_groups is not None:
         for group in user_groups:
-            if group in group_to_account_list:
-                accessible_accounts.update(group_to_account_list[group])
+            accessible_accounts.update(group_to_account_list.get(group, []))
     else:
         print("WARNING: No user groups provided, defaulting to scanning all configured accounts.")
-        for acc_list in group_to_account_list.values():
-            accessible_accounts.update(acc_list)
+        for acc_list in group_to_account_list.values(): accessible_accounts.update(acc_list)
 
-    print(f"User groups received: {user_groups}")
-    print(f"Accessible accounts based on map: {accessible_accounts}")
-
+    print(f"User groups: {user_groups}, Accessible accounts: {accessible_accounts}")
+    
     target_roles_str = os.getenv("AWS_TARGET_ACCOUNTS_ROLES", "")
     all_possible_accounts = []
     if target_roles_str:
@@ -415,28 +524,23 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
                 try:
                     all_possible_accounts.append({'role_arn': role_arn.strip(), 'id': role_arn.strip().split(':')[4]})
                 except IndexError:
-                    print(f"WARNING: Invalid Role ARN format in AWS_TARGET_ACCOUNTS_ROLES: {role_arn}")
+                    print(f"WARNING: Invalid Role ARN format: {role_arn}")
     
     try:
         primary_account_id = boto3.client('sts').get_caller_identity().get('Account')
         if primary_account_id not in [acc['id'] for acc in all_possible_accounts]:
             all_possible_accounts.append({'role_arn': None, 'id': primary_account_id})
     except (NoCredentialsError, PartialCredentialsError, ClientError) as e:
-        print(f"WARNING: Could not determine primary account ID. The 'self' account will not be scanned. Error: {e}")
+        print(f"WARNING: Could not determine primary account ID: {e}")
 
     accounts_to_scan = [acc for acc in all_possible_accounts if acc['id'] in accessible_accounts]
 
     if not accounts_to_scan and group_to_account_list:
         print("WARNING: User has access to no configured accounts. Returning empty data.")
-        return {
-            "clusters": [], "quick_info": {}, "errors": ["User has no access to any configured AWS accounts."],
-            "clusters_by_account_count": {}, "clusters_by_region_count": {}, 
-            "clusters_by_version_count": {}, "clusters_by_health_status_count": {}
-        }
+        return {"clusters": [], "quick_info": {}, "errors": ["User has no access to any configured AWS accounts."]}
 
-    print(f"Final list of accounts to scan for this user: {[acc['id'] for acc in accounts_to_scan]}")
-    # --- End of CORRECTED Group-Based Authentication Logic ---
-
+    print(f"Final accounts to scan for this user: {[acc['id'] for acc in accounts_to_scan]}")
+    
     regions_str = os.getenv("AWS_REGIONS", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
     target_regions = [r.strip() for r in regions_str.split(',') if r.strip()]
     
@@ -451,48 +555,52 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
         for region in target_regions:
             try:
                 eks = session.client('eks', region_name=region)
-                count = 0
                 for page in eks.get_paginator('list_clusters').paginate():
                     for name in page.get('clusters', []):
-                        count += 1
                         clusters_to_describe.append({'name': name, 'region': region, 'account': account, 'session': session})
-                print(f"Found {count} clusters in Account: {account['id']}, Region: {region}")
             except Exception as e:
-                errors.append(f"Error listing clusters in account {account['id']} in {region}: {e}")
+                errors.append(f"Error listing clusters in account {account['id']}/{region}: {e}")
 
     print(f"\n--- Phase 2: Describing {len(clusters_to_describe)} clusters ---")
-    failed_descriptions = []
-    for i, cluster_info in enumerate(clusters_to_describe):
-        print(f"Describing cluster {i+1}/{len(clusters_to_describe)}: {cluster_info['name']} in {cluster_info['region']}")
+    for cluster_info in clusters_to_describe:
         try:
             desc = cluster_info['session'].client('eks', region_name=cluster_info['region']).describe_cluster(name=cluster_info['name']).get('cluster', {})
             desc['region'] = cluster_info['region']
             all_clusters_raw.append(desc)
         except Exception as e:
-            failed_descriptions.append(cluster_info)
-            print(f"ERROR: Initial describe failed for {cluster_info['name']}: {e}")
+            errors.append(f"Error describing cluster {cluster_info['name']}: {e}")
 
-    retries = 3
-    for i in range(retries):
-        if not failed_descriptions: break
-        print(f"\n--- Phase 3: RETRY {i+1}/{retries} for {len(failed_descriptions)} failed clusters ---")
-        time.sleep(2 * (i + 1))
-        still_failing = []
-        for cluster_info in failed_descriptions:
-            try:
-                desc = cluster_info['session'].client('eks', region_name=cluster_info['region']).describe_cluster(name=cluster_info['name']).get('cluster', {})
-                desc['region'] = cluster_info['region']
-                all_clusters_raw.append(desc)
-                print(f"SUCCESS on retry: {cluster_info['name']}")
-            except Exception as e:
-                still_failing.append(cluster_info)
-                if i == retries - 1:
-                    errors.append(f"FATAL: Describe for {cluster_info['name']} failed after {retries} retries: {e}")
-        failed_descriptions = still_failing
-
-    print("\n--- Phase 4: Processing all successfully described clusters ---")
+    print("\n--- Phase 3: Processing all successfully described clusters ---")
     processed_clusters = [_process_cluster_data(c) for c in all_clusters_raw]
     
+    # --- Phase 4: Fetching Fleet Cost Data ---
+    # Group clusters by account to make one cost-explorer call per account
+    clusters_by_account = {}
+    for cluster in processed_clusters:
+        acc_id = cluster['account_id']
+        if acc_id not in clusters_by_account:
+            clusters_by_account[acc_id] = []
+        clusters_by_account[acc_id].append(cluster['name'])
+
+    total_cost = 0.0
+    for account in accounts_to_scan:
+        session = get_session(account.get('role_arn'))
+        if not session:
+            continue
+        cluster_names_in_account = clusters_by_account.get(account['id'], [])
+        if cluster_names_in_account:
+            print(f"Fetching costs for {len(cluster_names_in_account)} clusters in account {account['id']}")
+            cost_map = get_cost_for_clusters(session, cluster_names_in_account)
+            for cluster in processed_clusters:
+                if cluster['account_id'] == account['id'] and cluster['name'] in cost_map:
+                    cost_str = cost_map[cluster['name']]
+                    cluster['cost_30d'] = cost_str
+                    try:
+                        total_cost += float(cost_str.replace('$', '').replace(',', ''))
+                    except ValueError:
+                        pass
+    
+    print("\n--- Phase 5: Finalizing data ---")
     for cluster in processed_clusters:
         if isinstance(cluster.get('createdAt'), datetime):
             cluster['createdAt'] = cluster['createdAt'].isoformat()
@@ -501,16 +609,13 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
         "clusters": processed_clusters, "errors": errors,
         "quick_info": {
             "total_clusters": len(processed_clusters),
+            "total_cost_30d": f"${total_cost:,.2f}",
             "clusters_with_health_issues": sum(1 for c in processed_clusters if c["health_issues"]),
             "clusters_with_upgrade_insights_attention": sum(1 for c in processed_clusters if c["upgrade_insight_status"] == "NEEDS_ATTENTION"),
             "clusters_nearing_eol_90_days": sum(1 for c in processed_clusters if c["is_nearing_eol_90_days"]),
             "accounts_running_kubernetes_clusters": len({c["account_id"] for c in processed_clusters}),
             "regions_running_kubernetes_clusters": len({c["region"] for c in processed_clusters}),
         },
-        "clusters_by_account_count": dict(Counter(c['account_id'] for c in processed_clusters)),
-        "clusters_by_region_count": dict(Counter(c['region'] for c in processed_clusters)),
-        "clusters_by_version_count": dict(Counter(c['version'] for c in processed_clusters)),
-        "clusters_by_health_status_count": dict(Counter(c['health_status_summary'] for c in processed_clusters)),
     }
 
 def get_single_cluster_details(account_id, region, cluster_name, role_arn=None):
@@ -527,7 +632,13 @@ def get_single_cluster_details(account_id, region, cluster_name, role_arn=None):
              return {"errors": [f"Cluster {cluster_name} not found."]}
         
         cluster_raw['region'] = region
-        cluster_details = _process_cluster_data(cluster_raw, with_details=True, eks_client=eks_client, role_arn=role_arn)
+        cluster_details = _process_cluster_data(
+            cluster_raw, 
+            with_details=True, 
+            eks_client=eks_client, 
+            role_arn=role_arn,
+            session=session
+        )
 
         return cluster_details
     except Exception as e:

@@ -13,6 +13,9 @@
     --status-creating: #A78BFA; /* Violet 400 */
     --status-failed: #EF4444; /* Red 500 */
     --status-unknown: #64748B; /* Slate 500 */
+    --status-pending: #F59E0B; /* Amber 500 */
+    --status-running: #22C55E; /* Green 500 */
+    --status-succeeded: #10B981; /* Emerald 500 */
 
     --font-family: 'Inter', sans-serif;
 }
@@ -114,6 +117,28 @@ body {
 }
 #reset-filters-btn:hover {
     background-color: var(--border-color);
+}
+
+.sidebar-footer {
+    margin-top: auto; /* Pushes footer to the bottom */
+}
+.sidebar-footer .nav-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    transition: background-color 0.2s, color 0.2s;
+}
+.sidebar-footer .nav-item:hover {
+    background-color: var(--surface-color);
+    color: var(--text-primary);
+}
+.sidebar-footer .nav-item i {
+    margin-right: 1rem;
+    width: 20px;
+    height: 20px;
 }
 
 
@@ -310,16 +335,20 @@ body {
     font-size: 0.8rem;
     font-weight: 500;
     display: inline-block;
+    text-transform: capitalize;
 }
 .status-active, .status-badge.status-active { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
+.status-running, .status-badge.status-running { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
+.status-succeeded, .status-badge.status-succeeded { background-color: rgba(16, 185, 129, 0.2); color: var(--status-succeeded); }
 .status-updating, .status-badge.status-updating { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
+.status-pending, .status-badge.status-pending { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
 .status-deleting, .status-badge.status-deleting { background-color: rgba(244, 63, 94, 0.2); color: var(--status-deleting); }
 .status-creating, .status-badge.status-creating { background-color: rgba(167, 139, 250, 0.2); color: var(--status-creating); }
 .status-failed, .status-badge.status-failed, .status-badge.status-error_describing { background-color: rgba(239, 68, 68, 0.2); color: var(--status-failed); }
 .status-unknown, .status-badge.status-unknown { background-color: rgba(100, 116, 139, 0.2); color: var(--status-unknown); }
 
 .health-badge.health-healthy { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
-.health-badge.health-has_issues { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
+.health-badge.health-has-issues { background-color: rgba(245, 158, 11, 0.2); color: var(--status-updating); }
 .health-badge.health-unknown { background-color: rgba(100, 116, 139, 0.2); color: var(--status-unknown); }
 
 .insight-badge.insight-passing { background-color: rgba(34, 197, 94, 0.2); color: var(--status-active); }
@@ -568,3 +597,4 @@ body {
 .metric-widget .text-muted {
     padding: 2rem;
 }
+

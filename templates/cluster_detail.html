@@ -1,5 +1,3 @@
-
-
 {% extends "base.html" %}
 
 {% block title %}Cluster Details: {{ cluster.name }}{% endblock %}
@@ -42,16 +40,17 @@
     <a href="{{ url_for('read_dashboard') }}" class="back-link"><i data-feather="arrow-left"></i> Back to Dashboard</a>
     <h2 class="cluster-detail-title">{{ cluster.name or "Unknown Cluster" }}</h2>
 
-    {% if errors %}
+    {% if cluster.errors %}
         <div class="error-message-box">
             <strong>Error fetching cluster details:</strong>
-            <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+            <ul>{% for error in cluster.errors %}<li>{{ error }}</li>{% endfor %}</ul>
         </div>
     {% else %}
     <div class="tab-container">
         <div class="tab-nav">
             <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
             <button class="tab-link" onclick="openTab(event, 'nodegroups')"><i data-feather="hard-drive"></i>Compute</button>
+            <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
             <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="activity"></i>Observability</button>
             <button class="tab-link" onclick="openTab(event, 'logs')"><i data-feather="file-text"></i>Logs</button>
@@ -71,6 +70,7 @@
                         <div><strong>K8s Version:</strong> <span class="text-muted">{{ cluster.version }}</span></div>
                         <div><strong>Platform Version:</strong> <span class="text-muted">{{ cluster.platformVersion }}</span></div>
                         <div><strong>Created At:</strong> <span class="text-muted">{{ cluster.createdAt.strftime('%Y-%m-%d') if cluster.createdAt else 'N/A' }}</span></div>
+                        <div><strong>Est. Cost (30d):</strong> <span class="text-muted">{{ cluster.cost_30d or 'N/A' }}</span></div>
                         <div><strong>OIDC Provider:</strong> <span class="text-muted code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
                     </div>
                 </div>
@@ -148,6 +148,62 @@
                     </div>
                 </div>
             </div>
+        </div>
+        
+        <!-- Workloads Tab -->
+        <div id="workloads" class="tab-content">
+            {% if cluster.workloads and not cluster.workloads.error %}
+                <div class="widget">
+                    <div class="widget-header"><h2>Namespaces</h2></div>
+                    <div class="widget-content">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>Name</th><th>Status</th><th>Created At</th></tr></thead>
+                                <tbody>
+                                    {% for ns in cluster.workloads.namespaces %}
+                                    <tr>
+                                        <td>{{ ns.metadata.name }}</td>
+                                        <td><span class="status-badge status-{{ ns.status.phase.lower() }}">{{ ns.status.phase }}</span></td>
+                                        <td>{{ ns.metadata.creationTimestamp }}</td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="3" class="text-muted" style="text-align: center;">No namespaces found.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="widget">
+                    <div class="widget-header"><h2>Pods</h2></div>
+                    <div class="widget-content">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th></tr></thead>
+                                <tbody>
+                                    {% for pod in cluster.workloads.pods %}
+                                    <tr>
+                                        <td>{{ pod.metadata.name }}</td>
+                                        <td>{{ pod.metadata.namespace }}</td>
+                                        <td>{{ pod.spec.nodeName | default('N/A') }}</td>
+                                        <td><span class="status-badge status-{{ pod.status.phase.lower() }}">{{ pod.status.phase }}</span></td>
+                                        <td>{{ pod.restarts }}</td>
+                                        <td>{{ pod.age }}</td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="6" class="text-muted" style="text-align: center;">No pods found.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <div class="error-message-box">
+                    <strong>Could not load workload data.</strong>
+                    {% if cluster.workloads.error %}<p>Reason: {{ cluster.workloads.error }}</p>{% endif %}
+                </div>
+            {% endif %}
         </div>
 
         <!-- Addons Tab -->
@@ -307,7 +363,7 @@
             });
         });
 
-        // --- CORRECTED LOG STREAMING LOGIC ---
+        // --- LOG STREAMING LOGIC ---
         const logSelector = document.getElementById('log-type-selector');
         const logOutput = document.getElementById('log-output');
         let eventSource;
@@ -319,14 +375,13 @@
                 renderScheduled = false;
                 return;
             }
-
             const fragment = document.createDocumentFragment();
             logBuffer.forEach(line => {
                 fragment.appendChild(document.createTextNode(line));
             });
             logBuffer = [];
             
-            const shouldScroll = logOutput.scrollTop + logOutput.clientHeight === logOutput.scrollHeight;
+            const shouldScroll = logOutput.scrollTop + logOutput.clientHeight >= logOutput.scrollHeight - 20;
             logOutput.appendChild(fragment);
             if (shouldScroll) {
                 logOutput.scrollTop = logOutput.scrollHeight;
@@ -360,9 +415,11 @@
                 }
                 const data = JSON.parse(event.data);
                 
-                if (data.message && firstMessage) {
-                    logBuffer.push(data.message);
-                    if (!data.timestamp) eventSource.close();
+                if (data.message && !data.timestamp) { // Handle simple status messages
+                    logBuffer.push(`${data.message}\n`);
+                    if (!logOutput.textContent.includes('No new log events')) {
+                       eventSource.close();
+                    }
                 } else if (data.error) {
                     logBuffer.push(`\n\nERROR: ${data.error}`);
                     eventSource.close();
@@ -476,10 +533,13 @@
             try {
                 const url = `/api/metrics/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}`;
                 const response = await fetch(url);
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to fetch metrics');
+                }
                 const metricsData = await response.json();
                 
-                if (!response.ok) throw new Error(metricsData.error || 'Failed to fetch metrics');
-                if (Object.keys(metricsData).length === 0 || Object.values(metricsData).every(d => d.values.length === 0)) {
+                if (Object.keys(metricsData).length === 0 || Object.values(metricsData).every(d => d.values && d.values.length === 0)) {
                     throw new Error("No metrics data returned. Please ensure Container Insights is enabled and the cluster has been active recently.");
                 }
                 

@@ -7,7 +7,7 @@ import os
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 from cachetools import TTLCache
 import json
 import logging
@@ -51,7 +51,7 @@ app.add_middleware(
 # --- Static files, Templates, and Cache Setup ---
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-cache = TTLCache(maxsize=100, ttl=300)
+cache = TTLCache(maxsize=200, ttl=3600)
 
 # --- SAML Helper Function ---
 async def prepare_saml_request(request: Request):
@@ -72,16 +72,21 @@ async def get_current_user(request: Request):
     if not request.state.user:
         if "/api/" in request.url.path:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
-        return RedirectResponse(url=f"/login?next={request.url.path}")
+        
+        # --- FIX APPLIED HERE ---
+        # Manually build the redirect URL to avoid the NoMatchFound error.
+        # We URL-encode the path to ensure it's a valid query parameter.
+        redirect_url = f"/login?next={quote(request.url.path)}"
+        return RedirectResponse(url=redirect_url)
+    
     return request.state.user
 
 # --- Authentication Routes (SAML) ---
-@app.get('/login', tags=['Authentication'])
-async def saml_login(request: Request):
+@app.get('/login', tags=['Authentication'], name='saml_login')
+async def saml_login(request: Request, next: str = "/"):
     req = await prepare_saml_request(request)
     auth = OneLogin_Saml2_Auth(req, custom_base_path=os.path.join(os.path.dirname(__file__), 'saml_config'))
-    target_url = request.query_params.get('next', '/')
-    return RedirectResponse(auth.login(return_to=target_url))
+    return RedirectResponse(auth.login(return_to=next))
 
 @app.post('/saml/acs', tags=['Authentication'], include_in_schema=False)
 async def saml_assertion_consumer_service(request: Request):
@@ -98,18 +103,22 @@ async def saml_assertion_consumer_service(request: Request):
         'email': auth.get_nameid(), 'attributes': auth.get_attributes(), 'session_index': auth.get_session_index()
     }
     relay_state = req['post_data'].get('RelayState', '/')
-    return RedirectResponse(url=relay_state if relay_state.startswith('/') else '/', status_code=303)
+    if not relay_state.startswith('/'):
+        relay_state = '/'
+    return RedirectResponse(url=relay_state, status_code=303)
 
-@app.get('/logout', tags=['Authentication'])
+@app.get('/logout', tags=['Authentication'], name='saml_logout')
 async def saml_logout(request: Request):
     req = await prepare_saml_request(request)
     auth = OneLogin_Saml2_Auth(req, custom_base_path=os.path.join(os.path.dirname(__file__), 'saml_config'))
     user_session = request.session.get("user", {})
     logout_url = auth.logout(
-        name_id=user_session.get("email"), session_index=user_session.get("session_index"), return_to="/logged-out"
+        name_id=user_session.get("email"), 
+        session_index=user_session.get("session_index"), 
+        return_to="/"
     )
     request.session.clear()
-    return RedirectResponse(logout_url if logout_url else "/logged-out")
+    return RedirectResponse(logout_url if logout_url else "/")
 
 @app.get("/logged-out", response_class=HTMLResponse, tags=['Authentication'])
 async def logged_out_page(request: Request):
@@ -134,7 +143,7 @@ def get_role_arn_for_account(account_id: str) -> str | None:
     return None
 
 # --- Main Application Routes ---
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, name="read_dashboard")
 async def read_dashboard(request: Request, user: dict = Depends(get_current_user)):
     if isinstance(user, RedirectResponse): return user
     request.state.now = datetime.now(timezone.utc)
@@ -144,30 +153,45 @@ async def read_dashboard(request: Request, user: dict = Depends(get_current_user
     saml_groups = saml_attributes.get(group_key, [])
     user_groups = saml_groups if isinstance(saml_groups, list) else [saml_groups]
     cache_key = f"dashboard_data_{'_'.join(sorted(user_groups))}"
+    
     if cache_key in cache:
         logging.info(f"Cache HIT for dashboard: user='{user.get('email')}'")
         dashboard_data = cache[cache_key]
     else:
         logging.info(f"Cache MISS for dashboard: user='{user.get('email')}'")
         dashboard_data = get_live_eks_data(user_groups, group_map_str)
-        cache[cache_key] = dashboard_data
+        if not dashboard_data.get("errors"):
+            cache[cache_key] = dashboard_data
+
     context = {"request": request, "user": user, **dashboard_data}
     return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/clusters/{account_id}/{region}/{cluster_name}", response_class=HTMLResponse, name="read_cluster_detail")
 async def read_cluster_detail(request: Request, account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
     if isinstance(user, RedirectResponse): return user
-    try:
-        self_account_id = boto3.client('sts').get_caller_identity().get('Account')
-    except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
-        logging.error(f"Could not determine self account ID from instance metadata: {e}")
-        return templates.TemplateResponse("error.html", {"request": request, "errors": ["Could not determine the application's own account ID."]}, status_code=500)
-    role_arn = None
-    if account_id != self_account_id:
-        role_arn = get_role_arn_for_account(account_id)
-        if not role_arn:
-            return templates.TemplateResponse("error.html", {"request": request, "errors": [f"No role ARN for account {account_id} is configured in AWS_TARGET_ACCOUNTS_ROLES."], "reason": "Please check your .env file."}, status_code=404)
-    cluster_details = get_single_cluster_details(account_id=account_id, region=region, cluster_name=cluster_name, role_arn=role_arn)
+    
+    cache_key = f"cluster_{account_id}_{region}_{cluster_name}"
+    if cache_key in cache:
+        logging.info(f"Cache HIT for cluster detail: {cluster_name}")
+        cluster_details = cache[cache_key]
+    else:
+        logging.info(f"Cache MISS for cluster detail: {cluster_name}")
+        try:
+            self_account_id = boto3.client('sts').get_caller_identity().get('Account')
+        except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
+            logging.error(f"Could not determine self account ID from instance metadata: {e}")
+            return templates.TemplateResponse("error.html", {"request": request, "errors": ["Could not determine the application's own account ID."]}, status_code=500)
+        
+        role_arn = None
+        if account_id != self_account_id:
+            role_arn = get_role_arn_for_account(account_id)
+            if not role_arn:
+                return templates.TemplateResponse("error.html", {"request": request, "errors": [f"No role ARN for account {account_id} is configured in AWS_TARGET_ACCOUNTS_ROLES."], "reason": "Please check your .env file."}, status_code=404)
+        
+        cluster_details = get_single_cluster_details(account_id=account_id, region=region, cluster_name=cluster_name, role_arn=role_arn)
+        if not cluster_details.get("errors"):
+             cache[cache_key] = cluster_details
+
     context = {"request": request, "user": user, "cluster": cluster_details, "account_id": account_id, "region": region}
     return templates.TemplateResponse("cluster_detail.html", context)
 

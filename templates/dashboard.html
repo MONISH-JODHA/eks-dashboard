@@ -27,11 +27,11 @@
     <h3 class="section-title">Cluster Fleet Summary</h3>
     <div class="quick-info-grid">
          <div class="info-box clickable-filter" data-filter-key="all" data-filter-value="all"><div class="icon-bg"><i data-feather="server"></i></div><div><div class="value" id="quick-info-total-clusters">{{ quick_info.total_clusters | default(0) }}</div><div class="label">Total Clusters</div></div></div>
+         <div class="info-box"><div class="icon-bg"><i data-feather="dollar-sign"></i></div><div><div class="value" id="quick-info-cost">{{ quick_info.total_cost_30d | default("$0.00") }}</div><div class="label">Est. Cost (30d)</div></div></div>
          <div class="info-box clickable-filter" data-filter-key="health" data-filter-value="HAS_ISSUES"><div class="icon-bg"><i data-feather="alert-triangle"></i></div><div><div class="value">{{ quick_info.clusters_with_health_issues | default(0) }}</div><div class="label">With Health Issues</div></div></div>
          <div class="info-box clickable-filter" data-filter-key="upgrade" data-filter-value="NEEDS_ATTENTION"><div class="icon-bg"><i data-feather="tool"></i></div><div><div class="value">{{ quick_info.clusters_with_upgrade_insights_attention | default(0) }}</div><div class="label">Needs Upgrade Attention</div></div></div>
          <div class="info-box clickable-filter" data-filter-key="eol" data-filter-value="true"><div class="icon-bg"><i data-feather="calendar"></i></div><div><div class="value">{{ quick_info.clusters_nearing_eol_90_days | default(0) }}</div><div class="label">Nearing EOL (90d)</div></div></div>
          <div class="info-box"><div class="icon-bg"><i data-feather="users"></i></div><div><div class="value" id="quick-info-accounts">{{ quick_info.accounts_running_kubernetes_clusters | default(0) }}</div><div class="label">Active Accounts</div></div></div>
-         <div class="info-box"><div class="icon-bg"><i data-feather="globe"></i></div><div><div class="value" id="quick-info-regions">{{ quick_info.regions_running_kubernetes_clusters | default(0) }}</div><div class="label">Active Regions</div></div></div>
     </div>
 
     <div class="widget-grid-dynamic">
@@ -77,7 +77,7 @@
             <div class="table-container">
                 <table class="data-table" id="clusters-table">
                     <thead>
-                        <tr><th>Name</th><th>Account ID</th><th>Version</th><th>Status</th><th>Region</th><th>Health</th><th>Upgrade Insight</th></tr>
+                        <tr><th>Name</th><th>Account ID</th><th>Version</th><th>Region</th><th>Status</th><th>Health</th><th>Upgrade Insight</th><th>Cost (30d)</th></tr>
                     </thead>
                     <tbody>
                         {% for cluster in clusters %}
@@ -85,10 +85,11 @@
                             <td>{{ cluster.name }} <i data-feather="arrow-right" class="row-arrow"></i></td>
                             <td>{{ cluster.account_id }}</td>
                             <td>{{ cluster.version }}</td>
-                            <td class="status-cell"><span class="status-badge status-{{ cluster.status.lower() }}">{{ cluster.status }}</span></td>
                             <td>{{ cluster.region }}</td>
+                            <td class="status-cell"><span class="status-badge status-{{ cluster.status.lower() }}">{{ cluster.status }}</span></td>
                             <td class="health-cell"><span class="health-badge health-{{ cluster.health_status_summary.lower().replace(' ', '_') }}">{{ cluster.health_status_summary }}</span></td>
                             <td class="insight-cell"><span class="insight-badge insight-{{ cluster.upgrade_insight_status.lower().replace('_', '-') }}">{{ cluster.upgrade_insight_status | replace('_', ' ') | title }}</span></td>
+                            <td class="cost-cell">{{ cluster.cost_30d | default('N/A') }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -262,11 +263,14 @@
             let csv = [];
             const table = document.getElementById(tableId);
             const rows = table.querySelectorAll("tr");
-            for (const row of rows) {
+            const header = Array.from(rows[0].querySelectorAll("th")).map(th => `"${th.innerText.replace(/"/g, '""')}"`).join(',');
+            csv.push(header);
+
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
                 if (row.style.display === 'none') continue;
-                const cols = row.querySelectorAll("td, th");
-                let rowData = [];
-                for (const col of cols) { rowData.push(`"${col.innerText.replace(/"/g, '""')}"`); }
+                const cols = row.querySelectorAll("td");
+                let rowData = Array.from(cols).map(col => `"${col.innerText.replace(/"/g, '""')}"`);
                 csv.push(rowData.join(","));
             }
             const link = document.createElement("a");
@@ -309,9 +313,7 @@
                 const btn = e.currentTarget;
                 const icon = btn.querySelector('svg');
                 
-                if (icon) {
-                    icon.classList.add('spin');
-                }
+                if (icon) icon.classList.add('spin');
                 btn.disabled = true;
                 
                 try {
@@ -324,9 +326,7 @@
                 } catch (error) {
                     alert('An error occurred while refreshing data.');
                 } finally {
-                    if (icon) {
-                        icon.classList.remove('spin');
-                    }
+                    if (icon) icon.classList.remove('spin');
                     btn.disabled = false;
                 }
             });
