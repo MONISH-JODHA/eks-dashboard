@@ -9,6 +9,7 @@ import time
 import base64
 import requests
 import subprocess
+from functools import lru_cache
 
 # --- EKS Data ---
 EKS_EOL_DATES = {
@@ -16,7 +17,6 @@ EKS_EOL_DATES = {
     "1.25": datetime(2024, 10, 22, tzinfo=timezone.utc), "1.26": datetime(2025, 1, 22, tzinfo=timezone.utc),
     "1.27": datetime(2025, 6, 22, tzinfo=timezone.utc), "1.28": datetime(2025, 7, 22, tzinfo=timezone.utc),
     "1.29": datetime(2025, 11, 1, tzinfo=timezone.utc), "1.30": datetime(2026, 6, 1, tzinfo=timezone.utc),
-    "1.31": datetime(2026, 7, 1, tzinfo=timezone.utc), "1.32": datetime(2026, 9, 1, tzinfo=timezone.utc),
 }
 # A conventional tag for associating costs with a cluster. Ensure your resources are tagged.
 COST_TAG_KEY = os.getenv("COST_TAG_KEY", "eks:cluster-name")
@@ -45,13 +45,14 @@ def get_session(role_arn=None):
 
     try:
         sts_client = boto3.client('sts')
-        session_name = f"eks-dashboard-session-{int(datetime.now(timezone.utc).timestamp())}"
-        assumed_role_object = sts_client.assume_role(RoleArn=role_arn, RoleSessionName=session_name)
-        credentials = assumed_role_object['Credentials']
+        assumed_role_object = sts_client.assume_role(
+            RoleArn=role_arn, RoleSessionName=f"eks-dashboard-session-{int(time.time())}"
+        )
+        creds = assumed_role_object['Credentials']
         return boto3.Session(
-            aws_access_key_id=credentials['AccessKeyId'],
-            aws_secret_access_key=credentials['SecretAccessKey'],
-            aws_session_token=credentials['SessionToken'],
+            aws_access_key_id=creds['AccessKeyId'],
+            aws_secret_access_key=creds['SecretAccessKey'],
+            aws_session_token=creds['SessionToken'],
         )
     except ClientError as e:
         print(f"ERROR_GARS: Could not assume role {role_arn}. Error: {e}")
@@ -62,19 +63,110 @@ def get_eks_token(cluster_name: str, role_arn: str = None) -> str:
     Generates an EKS authentication token using the AWS CLI.
     """
     command = ["aws", "eks", "get-token", "--cluster-name", cluster_name]
-    if role_arn:
-        command.extend(["--role-arn", role_arn])
+    if role_arn: command.extend(["--role-arn", role_arn])
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
-        token_data = json.loads(result.stdout)
-        return token_data["status"]["token"]
-    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired) as e:
-        print(f"ERROR getting EKS token via AWS CLI for cluster {cluster_name}: {e}")
-        if hasattr(e, 'stderr'):
-            print(f"AWS CLI Stderr: {e.stderr}")
+        return json.loads(result.stdout)["status"]["token"]
+    except Exception as e:
+        print(f"ERROR getting EKS token for cluster {cluster_name}: {e}")
         raise
 
-# --- New Cost Fetcher Function ---
+# --- NEW: Vulnerability Scanning ---
+@lru_cache(maxsize=128)
+def scan_image_with_trivy(image_name: str):
+    """Scans a container image with Trivy and returns a summary. Requires Trivy to be installed."""
+    print(f"Scanning image: {image_name} with Trivy...")
+    command = [
+        "trivy", "image", "--format", "json",
+        "--severity", "CRITICAL,HIGH", "--quiet", "--timeout", "3m", image_name
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=180)
+
+        if result.returncode > 1:
+             print(f"Trivy scan failed for {image_name}. Exit code: {result.returncode}. Stderr: {result.stderr}")
+             return {"error": f"Trivy scan failed. Is the image public or are you authenticated? Stderr: {result.stderr[:500]}"}
+
+        if not result.stdout.strip() or result.stdout.strip() == "null":
+            return {"CRITICAL": 0, "HIGH": 0}
+
+        scan_data = json.loads(result.stdout)
+        summary = {"CRITICAL": 0, "HIGH": 0}
+
+        results_list = scan_data if isinstance(scan_data, list) else [scan_data]
+        if results_list and results_list[0] and results_list[0].get("Results"):
+             for res in results_list[0]["Results"]:
+                if res.get("Vulnerabilities"):
+                    for vuln in res["Vulnerabilities"]:
+                        sev = vuln.get("Severity")
+                        if sev in summary:
+                            summary[sev] += 1
+        return summary
+    except FileNotFoundError:
+        print("ERROR: 'trivy' command not found. Please install Trivy on the host machine.")
+        return {"error": "Trivy not found on server."}
+    except json.JSONDecodeError:
+        print(f"ERROR decoding Trivy JSON for {image_name}. Stderr: {result.stderr}")
+        return {"error": "Failed to decode Trivy output. Image may not exist."}
+    except subprocess.TimeoutExpired:
+        print(f"ERROR: Trivy scan timed out for image {image_name}")
+        return {"error": "Scan timed out."}
+
+# --- NEW: Cost Optimization Insights ---
+def get_cost_optimization_insights(session, region, cluster_name):
+    """Finds potential cost savings for a given cluster."""
+    print(f"Searching for cost optimizations for {cluster_name}...")
+    insights = []
+    ec2 = session.client('ec2', region_name=region)
+    elbv2 = session.client('elbv2', region_name=region)
+    # This tag is standard for resources created by the AWS Load Balancer Controller
+    cluster_tag_filter = {'Name': f'tag:kubernetes.io/cluster/{cluster_name}', 'Values': ['owned']}
+
+    # Check for unattached EBS volumes
+    try:
+        volumes = ec2.describe_volumes(Filters=[{'Name': 'status', 'Values': ['available']}, cluster_tag_filter])
+        for vol in volumes.get('Volumes', []):
+            insights.append({
+                "title": "Unattached EBS Volume", "severity": "Medium",
+                "description": f"Volume {vol['VolumeId']} ({vol['Size']} GiB, Type: {vol['VolumeType']}) is 'available' and not attached to any instance, but is still incurring costs.",
+                "recommendation": "Verify the volume is no longer needed and delete it. If needed, consider snapshotting before deletion.",
+                "resource_id": vol['VolumeId']
+            })
+    except ClientError as e:
+        print(f"Warning: Could not check for unattached EBS volumes. Permission might be missing. {e}")
+
+    # Check for idle Load Balancers
+    try:
+        paginator = elbv2.get_paginator('describe_load_balancers')
+        for page in paginator.paginate():
+            lb_arns = [lb['LoadBalancerArn'] for lb in page.get('LoadBalancers', [])]
+            if not lb_arns: continue
+            tags_response = elbv2.describe_tags(ResourceArns=lb_arns)
+            for tag_desc in tags_response.get('TagDescriptions', []):
+                if any(t['Key'] == f'kubernetes.io/cluster/{cluster_name}' and t['Value'] == 'owned' for t in tag_desc.get('Tags', [])):
+                    lb_arn = tag_desc['ResourceArn']
+                    lb_name = lb_arn.split('/')[-2]
+                    tg_paginator = elbv2.get_paginator('describe_target_groups')
+                    is_idle = True
+                    for tg_page in tg_paginator.paginate(LoadBalancerArn=lb_arn):
+                        for tg in tg_page.get('TargetGroups', []):
+                            health = elbv2.describe_target_health(TargetGroupArn=tg['TargetGroupArn'])
+                            if any(t.get('TargetHealth', {}).get('State') == 'healthy' for t in health.get('TargetHealthDescriptions',[])):
+                                is_idle = False
+                                break
+                        if not is_idle: break
+                    if is_idle:
+                        insights.append({
+                            "title": "Idle Load Balancer", "severity": "High",
+                            "description": f"Load Balancer {lb_name} appears to have no healthy targets registered across all its target groups.",
+                            "recommendation": "This LB was likely provisioned by a Kubernetes Service. Verify if the Service is still needed. If not, deleting it will deprovision this LB.",
+                            "resource_id": lb_name
+                        })
+    except ClientError as e:
+        print(f"Warning: Could not check for idle LBs. Permission might be missing. {e}")
+    return insights
+
+# --- Cost Fetcher Function ---
 
 def get_cost_for_clusters(session, cluster_names: list):
     """
@@ -104,13 +196,13 @@ def get_cost_for_clusters(session, cluster_names: list):
             Metrics=['UnblendedCost'],
             GroupBy=[{'Type': 'TAG', 'Key': COST_TAG_KEY}]
         )
-        
+
         cost_map = {}
         for group in response.get('ResultsByTime', [])[0].get('Groups', []):
             tag_value = group['Keys'][0].split('$')[-1]
             amount = float(group['Metrics']['UnblendedCost']['Amount'])
             cost_map[tag_value] = f"${amount:,.2f}"
-            
+
         return cost_map
 
     except ClientError as e:
@@ -161,9 +253,9 @@ def fetch_karpenter_nodes_for_cluster(cluster_name, cluster_endpoint, cluster_ca
 
         response = requests.get(f"{cluster_endpoint}/api/v1/nodes", headers=headers, verify=ca_path, timeout=30)
         response.raise_for_status()
-        
+
         nodes = response.json().get('items', [])
-        
+
         for node in nodes:
             if 'karpenter.sh/provisioner-name' in node['metadata']['labels'] or node['metadata']['labels'].get('eks.amazonaws.com/compute-type') == 'ec2':
                 node_info = {
@@ -188,50 +280,99 @@ def fetch_karpenter_nodes_for_cluster(cluster_name, cluster_endpoint, cluster_ca
     return karpenter_nodes
 
 
-# --- New Granular Kubernetes Object Fetcher ---
+# --- Granular Kubernetes Object Fetcher ---
 
-def get_kubernetes_workloads(cluster_name, cluster_endpoint, cluster_ca, role_arn=None):
-    """Fetches details about Namespaces and Pods from the Kubernetes API."""
-    print(f"Fetching Kubernetes workloads for {cluster_name}...")
-    workloads = {"namespaces": [], "pods": []}
+def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca, role_arn=None):
+    """Fetches detailed workload info and builds a relationship map for visualization."""
+    print(f"Fetching full Kubernetes object map for {cluster_name}...")
+    k8s_data = {
+        "pods": [], "services": [], "ingresses": [], "nodes": [],
+        "map_nodes": [], "map_edges": [], "vulnerable_images": {}, "error": None
+    }
     ca_path = f"/tmp/{cluster_name}_ca.crt"
     try:
         token = get_eks_token(cluster_name, role_arn)
         headers = {'Authorization': f'Bearer {token}'}
-        with open(ca_path, "wb") as f:
-            f.write(base64.b64decode(cluster_ca))
+        with open(ca_path, "wb") as f: f.write(base64.b64decode(cluster_ca))
 
-        # Fetch Namespaces
-        ns_response = requests.get(f"{cluster_endpoint}/api/v1/namespaces", headers=headers, verify=ca_path, timeout=20)
-        ns_response.raise_for_status()
-        workloads["namespaces"] = ns_response.json().get('items', [])
+        endpoints = {
+            "pods": "/api/v1/pods", "services": "/api/v1/services",
+            "ingresses": "/apis/networking.k8s.io/v1/ingresses", "nodes": "/api/v1/nodes"
+        }
+        for key, endpoint in endpoints.items():
+            res = requests.get(f"{cluster_endpoint}{endpoint}", headers=headers, verify=ca_path, timeout=45)
+            res.raise_for_status()
+            k8s_data[key] = res.json().get('items', [])
 
-        # Fetch Pods from all namespaces
-        pods_response = requests.get(f"{cluster_endpoint}/api/v1/pods", headers=headers, verify=ca_path, timeout=45)
-        pods_response.raise_for_status()
-        
+        map_nodes, map_edges = [], []
+
+        for ing in k8s_data["ingresses"]:
+            uid = ing["metadata"]["uid"]
+            map_nodes.append({"id": uid, "label": ing["metadata"]["name"], "group": "ingress", "title": f"<b>Ingress</b><br>Namespace: {ing['metadata']['namespace']}"})
+            for rule in ing.get("spec", {}).get("rules", []):
+                for path in rule.get("http", {}).get("paths", []):
+                    svc_name = path["backend"]["service"]["name"]
+                    for svc in k8s_data["services"]:
+                        if svc["metadata"]["name"] == svc_name and svc["metadata"]["namespace"] == ing["metadata"]["namespace"]:
+                            map_edges.append({"from": uid, "to": svc["metadata"]["uid"]})
+                            break
+
+        for svc in k8s_data["services"]:
+            map_nodes.append({"id": svc["metadata"]["uid"], "label": svc["metadata"]["name"], "group": "svc", "title": f"<b>Service</b><br>Namespace: {svc['metadata']['namespace']}<br>Type: {svc['spec']['type']}"})
+
         now = datetime.now(timezone.utc)
-        for pod in pods_response.json().get('items', []):
+        for pod in k8s_data["pods"]:
+            pod_uid = pod["metadata"]["uid"]
             created_at = datetime.fromisoformat(pod['metadata']['creationTimestamp'].replace("Z", "+00:00"))
-            age_delta = now - created_at
-            
-            restarts = 0
-            if pod.get('status', {}).get('containerStatuses'):
-                restarts = sum(cs.get('restartCount', 0) for cs in pod['status']['containerStatuses'])
-            
-            pod['age'] = str(age_delta).split('.')[0] # Human-readable age
-            pod['restarts'] = restarts
-            workloads["pods"].append(pod)
-        
-        print(f"Found {len(workloads['namespaces'])} namespaces and {len(workloads['pods'])} pods for {cluster_name}.")
+            pod['age'] = str(now - created_at).split('.')[0]
+            pod['restarts'] = sum(cs.get('restartCount', 0) for cs in pod.get('status', {}).get('containerStatuses', []))
+
+            map_nodes.append({"id": pod_uid, "label": pod["metadata"]["name"], "group": "pod", "title": f"<b>Pod</b><br>Status: {pod['status']['phase']}<br>Node: {pod['spec'].get('nodeName', 'N/A')}"})
+
+            if pod["spec"].get("nodeName"):
+                for n in k8s_data["nodes"]:
+                    if n["metadata"]["name"] == pod["spec"]["nodeName"]:
+                        map_edges.append({"from": pod_uid, "to": n["metadata"]["uid"]})
+                        break
+
+            pod_labels = pod["metadata"].get("labels", {})
+            if pod_labels:
+                for svc in k8s_data["services"]:
+                    selector = svc["spec"].get("selector", {})
+                    if selector and svc["metadata"]["namespace"] == pod["metadata"]["namespace"]:
+                        if all(pod_labels.get(k) == v for k, v in selector.items()):
+                            map_edges.append({"from": svc["metadata"]["uid"], "to": pod_uid})
+
+            pod['vulnerability_summary'] = {"CRITICAL": 0, "HIGH": 0, "error": None}
+            for container in pod["spec"].get("containers", []) + pod["spec"].get("initContainers", []):
+                image_name = container["image"]
+                scan_result = scan_image_with_trivy(image_name)
+                if scan_result:
+                    if scan_result.get("error"):
+                         pod['vulnerability_summary']["error"] = scan_result["error"]
+                    else:
+                        pod['vulnerability_summary']["CRITICAL"] += scan_result["CRITICAL"]
+                        pod['vulnerability_summary']["HIGH"] += scan_result["HIGH"]
+                        if scan_result["CRITICAL"] > 0 or scan_result["HIGH"] > 0:
+                            if image_name not in k8s_data["vulnerable_images"]:
+                                k8s_data["vulnerable_images"][image_name] = {"CRITICAL": 0, "HIGH": 0}
+                            k8s_data["vulnerable_images"][image_name]["CRITICAL"] += scan_result["CRITICAL"]
+                            k8s_data["vulnerable_images"][image_name]["HIGH"] += scan_result["HIGH"]
+
+        for n in k8s_data["nodes"]:
+            instance_type = n['metadata']['labels'].get('node.kubernetes.io/instance-type', 'N/A')
+            map_nodes.append({"id": n["metadata"]["uid"], "label": n["metadata"]["name"], "group": "node", "title": f"<b>Node</b><br>Instance Type: {instance_type}"})
+
+        k8s_data["map_nodes"] = map_nodes
+        k8s_data["map_edges"] = map_edges
 
     except Exception as e:
         print(f"ERROR fetching Kubernetes workloads for {cluster_name}: {e}")
-        workloads['error'] = str(e)
+        k8s_data['error'] = str(e)
     finally:
         if os.path.exists(ca_path):
             os.remove(ca_path)
-    return workloads
+    return k8s_data
 
 
 def fetch_addons_for_cluster(eks_client, cluster_name):
@@ -276,7 +417,7 @@ def upgrade_nodegroup_version(account_id, region, cluster_name, nodegroup_name, 
     session = get_session(role_arn)
     if not session:
         return {"error": f"Failed to get session for account {account_id}."}
-    
+
     try:
         eks_client = session.client('eks', region_name=region)
         response = eks_client.update_nodegroup_version(
@@ -298,7 +439,7 @@ def stream_cloudwatch_logs(account_id, region, log_group_name, log_type_from_ui,
         'controllerManager': 'kube-controller-manager-', 'scheduler': 'kube-scheduler-'
     }
     log_type_prefix = log_stream_prefix_map.get(log_type_from_ui)
-    
+
     if not log_type_prefix:
         yield f"data: {json.dumps({'error': f'Invalid log type specified: {log_type_from_ui}'})}\n\n"
         return
@@ -317,13 +458,13 @@ def stream_cloudwatch_logs(account_id, region, log_group_name, log_type_from_ui,
         if not all_streams:
             yield f"data: {json.dumps({'message': f'No log streams found for log type \"{log_type_from_ui}\". Make sure this log type is enabled.'})}\n\n"
             return
-            
+
         latest_stream = max(all_streams, key=lambda s: s.get('lastEventTimestamp', 0))
         log_stream_name = latest_stream['logStreamName']
         print(f"Found latest log stream: {log_stream_name}")
 
         start_time = int((datetime.now(timezone.utc) - timedelta(minutes=10)).timestamp() * 1000)
-        
+
         paginator = logs_client.get_paginator('filter_log_events')
         pages = paginator.paginate(
             logGroupName=log_group_name, logStreamNames=[log_stream_name],
@@ -370,10 +511,10 @@ def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
         'inflight_mutating': {'MetricName': 'apiserver_current_inflight_requests_MUTATING', 'Stat': 'Average'}, 'inflight_readonly': {'MetricName': 'apiserver_current_inflight_requests_READONLY', 'Stat': 'Average'},
     }
     metric_queries = [
-        {'Id': f'm{i}', 'Label': key, 'MetricStat': {'Metric': {'Namespace': 'ContainerInsights', 'MetricName': definition['MetricName'], 'Dimensions': [{'Name': 'ClusterName', 'Value': cluster_name}]}, 'Period': 300, 'Stat': definition['Stat']}, 'ReturnData': True} 
+        {'Id': f'm{i}', 'Label': key, 'MetricStat': {'Metric': {'Namespace': 'ContainerInsights', 'MetricName': definition['MetricName'], 'Dimensions': [{'Name': 'ClusterName', 'Value': cluster_name}]}, 'Period': 300, 'Stat': definition['Stat']}, 'ReturnData': True}
         for i, (key, definition) in enumerate(metric_definitions.items())
     ]
-    
+
     try:
         response = cw_client.get_metric_data(MetricDataQueries=metric_queries, StartTime=start_time, EndTime=end_time, ScanBy='TimestampDescending')
         results = {metric_result['Label']: {'timestamps': [ts.isoformat() for ts in metric_result['Timestamps']], 'values': metric_result['Values']} for metric_result in response['MetricDataResults']}
@@ -391,10 +532,10 @@ def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
 def get_security_insights(cluster_raw, eks_client):
     """Analyzes raw cluster data to generate security-related insights."""
     insights = {}
-    
+
     insights['secrets_encrypted'] = {"status": any(cfg.get('provider', {}).get('keyArn') for cfg in cluster_raw.get('encryptionConfig', [])), "description": "Checks if envelope encryption for Kubernetes secrets is enabled with a KMS key."}
     insights['public_endpoint'] = {"status": not cluster_raw.get('resourcesVpcConfig', {}).get('endpointPublicAccess', False), "description": "Checks if the cluster's API server endpoint is private (best practice)."}
-    
+
     all_log_types = ['api', 'audit', 'authenticator', 'controllerManager', 'scheduler']
     enabled_logs = cluster_raw.get('logging', {}).get('clusterLogging', [{}])[0].get('types', [])
     insights['logging_enabled'] = {"status": all(lt in enabled_logs for lt in all_log_types), "missing_logs": [lt for lt in all_log_types if lt not in enabled_logs], "description": "Checks if all control plane log types are enabled and sent to CloudWatch."}
@@ -406,7 +547,7 @@ def get_security_insights(cluster_raw, eks_client):
         if e.response['Error']['Code'] == 'ResourceNotFoundException' and "Latest platform version for" in (msg := e.response['Error']['Message']):
             latest_pv, current_pv = msg.split(" is ")[-1].strip(), cluster_raw.get('platformVersion')
             insights['latest_platform_version'].update({"status": latest_pv == current_pv, "current": current_pv, "latest": latest_pv})
-    
+
     return insights
 
 # --- Main Data Aggregation Functions ---
@@ -415,11 +556,11 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
     """Processes raw EKS cluster data into a standardized dictionary."""
     now = datetime.now(timezone.utc)
     ninety_days_from_now = now + timedelta(days=90)
-    
+
     account_id = c_raw.get("arn", "").split(':')[4] if c_raw.get("arn") else "UnknownAccount"
     version = c_raw.get("version", "Unknown")
     status = c_raw.get("status", "Unknown")
-    
+
     health_issues = c_raw.get("health", {}).get("issues", [])
     health_status = "HEALTHY" if not health_issues else "HAS_ISSUES"
     if status.startswith("ERROR"): health_status = "UNKNOWN"
@@ -430,7 +571,7 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
     upgrade_insight = "PASSING"
     if version != "Unknown" and version < "1.29": upgrade_insight = "NEEDS_ATTENTION"
     if status == "UPDATING": upgrade_insight = "IN_PROGRESS"
-    
+
     cluster_data = {
         "name": c_raw.get("name"), "arn": c_raw.get("arn"), "account_id": account_id,
         "version": version, "platformVersion": c_raw.get("platformVersion"), "status": status,
@@ -443,7 +584,7 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
 
     if with_details and eks_client and session:
         cluster_name = c_raw["name"]
-        
+
         # Fetch Cost Data
         cost_map = get_cost_for_clusters(session, [cluster_name])
         cluster_data['cost_30d'] = cost_map.get(cluster_name, "N/A")
@@ -454,8 +595,8 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
             karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(
                 cluster_name, c_raw["endpoint"], c_raw["certificateAuthority"]["data"], role_arn
             )
-            # Fetch Workloads (Pods, Namespaces)
-            cluster_data["workloads"] = get_kubernetes_workloads(
+            # Fetch Workloads, Vulnerabilities, and Relationship Map
+            cluster_data["workloads"] = get_kubernetes_workloads_and_map(
                 cluster_name, c_raw["endpoint"], c_raw["certificateAuthority"]["data"], role_arn
             )
         else:
@@ -474,14 +615,16 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
             })
 
         processed_nodegroups.extend(karpenter_nodes_raw)
-        
+
         cluster_data.update({
             "nodegroups_data": processed_nodegroups,
             "addons": fetch_addons_for_cluster(eks_client, cluster_name),
             "fargate_profiles": fetch_fargate_profiles_for_cluster(eks_client, cluster_name),
             "oidc_provider_url": fetch_oidc_provider_for_cluster(c_raw),
             "networking": c_raw.get("resourcesVpcConfig", {}),
-            "security_insights": get_security_insights(c_raw, eks_client)
+            "security_insights": get_security_insights(c_raw, eks_client),
+            # Add new cost optimization insights
+            "cost_insights": get_cost_optimization_insights(session, c_raw['region'], cluster_name)
         })
 
     return cluster_data
@@ -505,7 +648,7 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
                 group_to_account_list[group].append(account_id)
             except ValueError:
                 print(f"WARNING: Invalid mapping format in GROUP_TO_ACCOUNT_MAP: '{mapping}'")
-    
+
     accessible_accounts = set()
     if user_groups is not None:
         for group in user_groups:
@@ -515,7 +658,7 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
         for acc_list in group_to_account_list.values(): accessible_accounts.update(acc_list)
 
     print(f"User groups: {user_groups}, Accessible accounts: {accessible_accounts}")
-    
+
     target_roles_str = os.getenv("AWS_TARGET_ACCOUNTS_ROLES", "")
     all_possible_accounts = []
     if target_roles_str:
@@ -525,7 +668,7 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
                     all_possible_accounts.append({'role_arn': role_arn.strip(), 'id': role_arn.strip().split(':')[4]})
                 except IndexError:
                     print(f"WARNING: Invalid Role ARN format: {role_arn}")
-    
+
     try:
         primary_account_id = boto3.client('sts').get_caller_identity().get('Account')
         if primary_account_id not in [acc['id'] for acc in all_possible_accounts]:
@@ -540,10 +683,10 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
         return {"clusters": [], "quick_info": {}, "errors": ["User has no access to any configured AWS accounts."]}
 
     print(f"Final accounts to scan for this user: {[acc['id'] for acc in accounts_to_scan]}")
-    
+
     regions_str = os.getenv("AWS_REGIONS", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
     target_regions = [r.strip() for r in regions_str.split(',') if r.strip()]
-    
+
     all_clusters_raw, errors, clusters_to_describe = [], [], []
 
     print("--- Phase 1: Listing all clusters ---")
@@ -572,7 +715,7 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
 
     print("\n--- Phase 3: Processing all successfully described clusters ---")
     processed_clusters = [_process_cluster_data(c) for c in all_clusters_raw]
-    
+
     # --- Phase 4: Fetching Fleet Cost Data ---
     # Group clusters by account to make one cost-explorer call per account
     clusters_by_account = {}
@@ -599,7 +742,7 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
                         total_cost += float(cost_str.replace('$', '').replace(',', ''))
                     except ValueError:
                         pass
-    
+
     print("\n--- Phase 5: Finalizing data ---")
     for cluster in processed_clusters:
         if isinstance(cluster.get('createdAt'), datetime):

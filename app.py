@@ -51,6 +51,7 @@ app.add_middleware(
 # --- Static files, Templates, and Cache Setup ---
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+# Cache with 1-hour TTL
 cache = TTLCache(maxsize=200, ttl=3600)
 
 # --- SAML Helper Function ---
@@ -73,9 +74,6 @@ async def get_current_user(request: Request):
         if "/api/" in request.url.path:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
         
-        # --- FIX APPLIED HERE ---
-        # Manually build the redirect URL to avoid the NoMatchFound error.
-        # We URL-encode the path to ensure it's a valid query parameter.
         redirect_url = f"/login?next={quote(request.url.path)}"
         return RedirectResponse(url=redirect_url)
     
