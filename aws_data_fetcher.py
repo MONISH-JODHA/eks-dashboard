@@ -117,47 +117,6 @@ def get_eks_token(cluster_name: str, role_arn: str = None) -> str:
         print(f"ERROR getting EKS token for cluster {cluster_name}: {e}")
         raise
 
-# --- Vulnerability Scanning ---
-@lru_cache(maxsize=128)
-def scan_image_with_trivy(image_name: str):
-    """Scans a container image with Trivy and returns a summary. Requires Trivy to be installed."""
-    print(f"Scanning image: {image_name} with Trivy...")
-    command = [
-        "trivy", "image", "--format", "json",
-        "--severity", "CRITICAL,HIGH", "--quiet", "--timeout", "3m", image_name
-    ]
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=180)
-
-        if result.returncode > 1:
-             print(f"Trivy scan failed for {image_name}. Exit code: {result.returncode}. Stderr: {result.stderr}")
-             return {"error": f"Trivy scan failed. Is the image public or are you authenticated? Stderr: {result.stderr[:500]}"}
-
-        if not result.stdout.strip() or result.stdout.strip() == "null":
-            return {"CRITICAL": 0, "HIGH": 0}
-
-        scan_data = json.loads(result.stdout)
-        summary = {"CRITICAL": 0, "HIGH": 0}
-
-        results_list = scan_data if isinstance(scan_data, list) else [scan_data]
-        if results_list and results_list[0] and results_list[0].get("Results"):
-             for res in results_list[0]["Results"]:
-                if res.get("Vulnerabilities"):
-                    for vuln in res["Vulnerabilities"]:
-                        sev = vuln.get("Severity")
-                        if sev in summary:
-                            summary[sev] += 1
-        return summary
-    except FileNotFoundError:
-        print("ERROR: 'trivy' command not found. Please install Trivy on the host machine.")
-        return {"error": "Trivy not found on server."}
-    except json.JSONDecodeError:
-        print(f"ERROR decoding Trivy JSON for {image_name}. Stderr: {result.stderr}")
-        return {"error": "Failed to decode Trivy output. Image may not exist."}
-    except subprocess.TimeoutExpired:
-        print(f"ERROR: Trivy scan timed out for image {image_name}")
-        return {"error": "Scan timed out."}
-
 # --- Agentless Feature Logic ---
 def get_pod_metrics(custom_objects_api):
     """Fetches pod metrics from the Kubernetes Metrics Server."""
@@ -350,9 +309,9 @@ def fetch_karpenter_nodes_for_cluster(cluster_name, cluster_endpoint, cluster_ca
     return karpenter_nodes
 
 def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca, role_arn=None):
-    """Fetches detailed workload info and builds a relationship map for visualization."""
+    """Fetches detailed workload info and builds a rich data structure for interactive visualization."""
     print(f"Fetching full Kubernetes object map for {cluster_name}...")
-    k8s_data = {"pods": [], "services": [], "ingresses": [], "nodes": [], "map_nodes": [], "map_edges": [], "vulnerable_images": {}, "error": None}
+    k8s_data = {"pods": [], "services": [], "ingresses": [], "nodes": [], "map_nodes": [], "map_edges": [], "error": None}
     ca_path = f"/tmp/{cluster_name}_ca.crt"
     try:
         token = get_eks_token(cluster_name, role_arn)
@@ -366,44 +325,94 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
 
         map_nodes, map_edges = [], []
         now = datetime.now(timezone.utc)
-
+        
+        # Process Ingresses
         for ing in k8s_data["ingresses"]:
-            map_nodes.append({"id": ing["metadata"]["uid"], "label": ing["metadata"]["name"], "group": "ingress", "title": f"<b>Ingress</b><br>Namespace: {ing['metadata']['namespace']}"})
+            details = {
+                "kind": "Ingress", "name": ing["metadata"]["name"], "namespace": ing["metadata"]["namespace"],
+                "class": ing["spec"].get("ingressClassName", "N/A"),
+                "hosts": [rule.get("host") for rule in ing.get("spec", {}).get("rules", [])],
+                "created": ing['metadata']['creationTimestamp']
+            }
+            map_nodes.append({
+                "id": ing["metadata"]["uid"], "label": ing["metadata"]["name"], "group": "ingress",
+                "title": f"Ingress: {details['name']}<br>Namespace: {details['namespace']}",
+                "details": details
+            })
             for rule in ing.get("spec", {}).get("rules", []):
                 for path in rule.get("http", {}).get("paths", []):
                     svc_name = path["backend"]["service"]["name"]
                     for svc in k8s_data["services"]:
                         if svc["metadata"]["name"] == svc_name and svc["metadata"]["namespace"] == ing["metadata"]["namespace"]:
                             map_edges.append({"from": ing["metadata"]["uid"], "to": svc["metadata"]["uid"]}); break
+        
+        # Process Services
         for svc in k8s_data["services"]:
-            map_nodes.append({"id": svc["metadata"]["uid"], "label": svc["metadata"]["name"], "group": "svc", "title": f"<b>Service</b><br>Namespace: {svc['metadata']['namespace']}<br>Type: {svc['spec']['type']}"})
+            details = {
+                "kind": "Service", "name": svc["metadata"]["name"], "namespace": svc["metadata"]["namespace"],
+                "type": svc["spec"]["type"], "cluster_ip": svc["spec"].get("clusterIP", "N/A"),
+                "ports": [f"{p.get('name', '')} {p['port']}:{p['targetPort']}/{p['protocol']}" for p in svc["spec"].get("ports", [])],
+                "selector": svc["spec"].get("selector"), "created": svc['metadata']['creationTimestamp']
+            }
+            map_nodes.append({
+                "id": svc["metadata"]["uid"], "label": svc["metadata"]["name"], "group": "svc",
+                "title": f"Service: {details['name']}<br>Type: {details['type']}",
+                "details": details
+            })
+
+        # Process Pods
         for pod in k8s_data["pods"]:
-            pod['age'] = str(now - datetime.fromisoformat(pod['metadata']['creationTimestamp'].replace("Z", "+00:00"))).split('.')[0]
+            age_delta = now - datetime.fromisoformat(pod['metadata']['creationTimestamp'].replace("Z", "+00:00"))
+            pod['age'] = str(age_delta).split('.')[0]
             pod['restarts'] = sum(cs.get('restartCount', 0) for cs in pod.get('status', {}).get('containerStatuses', []))
-            map_nodes.append({"id": pod["metadata"]["uid"], "label": pod["metadata"]["name"], "group": "pod", "title": f"<b>Pod</b><br>Status: {pod['status']['phase']}<br>Node: {pod['spec'].get('nodeName', 'N/A')}"})
+            
+            owner_ref = pod['metadata'].get('ownerReferences', [{}])[0]
+            controlled_by = f"{owner_ref.get('kind', 'N/A')}/{owner_ref.get('name', 'N/A')}"
+            
+            details = {
+                "kind": "Pod", "name": pod["metadata"]["name"], "namespace": pod["metadata"]["namespace"],
+                "status": pod["status"]["phase"], "pod_ip": pod["status"].get("podIP", "N/A"),
+                "node_name": pod["spec"].get("nodeName", "N/A"), "restarts": pod['restarts'], "age": pod['age'],
+                "controlled_by": controlled_by, "created": pod['metadata']['creationTimestamp']
+            }
+            map_nodes.append({
+                "id": pod["metadata"]["uid"], "label": pod["metadata"]["name"], "group": "pod",
+                "title": f"Pod: {details['name']}<br>Status: {details['status']}",
+                "details": details
+            })
+            # Edge: Pod -> Node
             if pod["spec"].get("nodeName"):
                 for n in k8s_data["nodes"]:
                     if n["metadata"]["name"] == pod["spec"]["nodeName"]:
                         map_edges.append({"from": pod["metadata"]["uid"], "to": n["metadata"]["uid"]}); break
+            
+            # Edge: Service -> Pod
             pod_labels = pod["metadata"].get("labels", {})
             if pod_labels:
                 for svc in k8s_data["services"]:
                     selector = svc["spec"].get("selector", {})
                     if selector and svc["metadata"]["namespace"] == pod["metadata"]["namespace"] and all(pod_labels.get(k) == v for k, v in selector.items()):
                         map_edges.append({"from": svc["metadata"]["uid"], "to": pod["metadata"]["uid"]})
-            pod['vulnerability_summary'] = {"CRITICAL": 0, "HIGH": 0, "error": None}
-            for container in pod["spec"].get("containers", []) + pod["spec"].get("initContainers", []):
-                image_name = container["image"]
-                scan_result = scan_image_with_trivy(image_name)
-                if scan_result.get("error"): pod['vulnerability_summary']["error"] = scan_result["error"]
-                else:
-                    pod['vulnerability_summary']["CRITICAL"] += scan_result["CRITICAL"]
-                    pod['vulnerability_summary']["HIGH"] += scan_result["HIGH"]
-                    if scan_result["CRITICAL"] > 0 or scan_result["HIGH"] > 0:
-                        k8s_data["vulnerable_images"].setdefault(image_name, {"CRITICAL": 0, "HIGH": 0})["CRITICAL"] += scan_result["CRITICAL"]
-                        k8s_data["vulnerable_images"].setdefault(image_name, {"CRITICAL": 0, "HIGH": 0})["HIGH"] += scan_result["HIGH"]
+
+        # Process Nodes
         for n in k8s_data["nodes"]:
-            map_nodes.append({"id": n["metadata"]["uid"], "label": n["metadata"]["name"], "group": "node", "title": f"<b>Node</b><br>Instance Type: {n['metadata']['labels'].get('node.kubernetes.io/instance-type', 'N/A')}"})
+            details = {
+                "kind": "Node", "name": n["metadata"]["name"],
+                "instance_type": n['metadata']['labels'].get('node.kubernetes.io/instance-type', 'N/A'),
+                "os_image": n["status"]["nodeInfo"].get("osImage", "N/A"),
+                "kernel_version": n["status"]["nodeInfo"].get("kernelVersion", "N/A"),
+                "kubelet_version": n["status"]["nodeInfo"].get("kubeletVersion", "N/A"),
+                "allocatable_cpu": n["status"].get("allocatable", {}).get("cpu", "N/A"),
+                "allocatable_memory": n["status"].get("allocatable", {}).get("memory", "N/A"),
+                "conditions": [{c['type']: c['status']} for c in n.get('status', {}).get('conditions', [])],
+                "created": n['metadata']['creationTimestamp']
+            }
+            map_nodes.append({
+                "id": n["metadata"]["uid"], "label": n["metadata"]["name"], "group": "node",
+                "title": f"Node: {details['name']}<br>Type: {details['instance_type']}",
+                "details": details
+            })
+
         k8s_data["map_nodes"], k8s_data["map_edges"] = map_nodes, map_edges
     except Exception as e:
         k8s_data['error'] = str(e)
@@ -438,46 +447,6 @@ def fetch_oidc_provider_for_cluster(cluster_raw):
 
 
 # --- Action and Streaming Functions ---
-def manage_workload(account_id, region, cluster_name, role_arn, action_details):
-    """Performs management actions (scale, restart, delete) on Kubernetes workloads."""
-    print(f"Performing action {action_details['action']} on {action_details['kind']} {action_details['name']}...")
-    try:
-        session = get_session(role_arn)
-        if not session: return {"error": "Failed to get AWS session."}
-        
-        eks_client = session.client('eks', region_name=region)
-        cluster_raw = eks_client.describe_cluster(name=cluster_name).get('cluster', {})
-        if not cluster_raw.get("endpoint") or not cluster_raw.get("certificateAuthority", {}).get("data"):
-            return {"error": "Cannot get K8s client, missing endpoint or CA data."}
-
-        api_client = get_k8s_api_client(cluster_name, cluster_raw["endpoint"], cluster_raw["certificateAuthority"]["data"], role_arn)
-        apps_v1 = client.AppsV1Api(api_client)
-        core_v1 = client.CoreV1Api(api_client)
-        
-        ns, kind, name, action = action_details['namespace'], action_details['kind'], action_details['name'], action_details['action']
-
-        if kind == 'Deployment':
-            if action == 'scale':
-                replicas = action_details['replicas']
-                apps_v1.patch_namespaced_deployment_scale(name=name, namespace=ns, body={"spec": {"replicas": replicas}})
-                return {"success": f"Deployment {name} scaled to {replicas} replicas."}
-            elif action == 'restart':
-                patch_body = {"spec": {"template": {"metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": datetime.now(timezone.utc).isoformat()}}}}}
-                apps_v1.patch_namespaced_deployment(name=name, namespace=ns, body=patch_body)
-                return {"success": f"Deployment {name} rollout restarted."}
-
-        elif kind == 'Pod' and action == 'delete_pod':
-            core_v1.delete_namespaced_pod(name=name, namespace=ns)
-            return {"success": f"Pod {name} deleted."}
-
-        return {"error": f"Unsupported action '{action}' for kind '{kind}'."}
-
-    except ApiException as e:
-        error_body = json.loads(e.body) if e.body and e.body.startswith('{') else {}
-        return {"error": f"K8s API Error: {error_body.get('message', e.reason)} (Status: {e.status})"}
-    except Exception as e:
-        return {"error": f"An unexpected error occurred: {str(e)}"}
-
 def upgrade_nodegroup_version(account_id, region, cluster_name, nodegroup_name, role_arn=None):
     """Initiates an upgrade for a managed nodegroup."""
     session = get_session(role_arn)

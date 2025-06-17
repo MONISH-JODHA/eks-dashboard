@@ -38,7 +38,7 @@
                 <h1 class="page-title">{% block page_title %}Dashboard Overview{% endblock %}</h1>
                 <div class="header-actions">
                     <span id="last-refreshed-time" class="last-refreshed"></span>
-                    <button id="refresh-data-btn" class="action-btn" title="Refresh Data">
+                    <button id="refresh-data-btn" class="action-btn" title="Refresh All Data">
                      <i data-feather="refresh-cw"></i>
                     </button>
                 </div>
@@ -52,6 +52,38 @@
     </footer>
     <script>
         feather.replace() // Initialize Feather Icons
+
+        // --- FIXED: GLOBAL REFRESH BUTTON LOGIC ---
+        // This script is now in base.html to work on all pages.
+        document.addEventListener('DOMContentLoaded', () => {
+            const globalRefreshBtn = document.getElementById('refresh-data-btn');
+            if (globalRefreshBtn) {
+                globalRefreshBtn.addEventListener('click', async (e) => {
+                    const btn = e.currentTarget;
+                    const icon = btn.querySelector('svg');
+                    
+                    if (icon) icon.classList.add('spin');
+                    btn.disabled = true;
+                    
+                    try {
+                        // This endpoint clears the entire application cache
+                        const response = await fetch('/api/refresh-data', { method: 'POST' });
+                        if (response.ok) {
+                            // Reload the current page to get the new data
+                            window.location.reload();
+                        } else {
+                            alert('Failed to refresh data. Please try again.');
+                        }
+                    } catch (error) {
+                        alert('An error occurred while refreshing data.');
+                    } finally {
+                        // This part might not be reached if the page reloads, but is good practice
+                        if (icon) icon.classList.remove('spin');
+                        btn.disabled = false;
+                    }
+                });
+            }
+        });
     </script>
     {% block scripts_extra %}{% endblock %}
 </body>

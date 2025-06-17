@@ -40,66 +40,81 @@
             border-radius: 8px;
             text-align: center;
         }
-
-        /* --- Styles for Agentless/New Features --- */
-        .analysis-card {
-            background-color: var(--surface-color);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1.5rem;
+        
+        /* --- Styles for Workload Graph & Insights --- */
+        #workload-graph-wrapper {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        #workload-graph-container {
             display: flex;
             flex-direction: column;
         }
-        .action-button {
-            background: var(--surface-color);
+        #workload-graph {
+            width: 100%;
+            height: 600px;
             border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            padding: 0.3rem 0.7rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            transition: background-color 0.2s, color 0.2s;
-            margin-left: 0.5rem;
+            border-radius: 8px;
+            background-color: var(--bg-color);
         }
-        .action-button:hover { background-color: var(--border-color); color: var(--text-primary); }
-        .action-button:disabled { background-color: var(--border-color); color: var(--text-muted); cursor: not-allowed; }
-        .action-button i { width: 14px; height: 14px; }
-        .scale-input {
-            width: 55px;
-            padding: 0.3rem;
+        .graph-controls {
+            display: flex;
+            gap: 1rem;
+            padding: 0.5rem 1rem;
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            align-items: center;
+        }
+        .graph-controls input {
+            padding: 0.5rem;
             background-color: var(--bg-color);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             color: var(--text-primary);
-            text-align: center;
+            width: 300px;
         }
-        .grid-gap-4 { display: grid; gap: 1rem; }
-        @media (min-width: 768px) { .md-grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        
-        /* Workload graph styles */
-        #workload-graph-container { margin-bottom: 20px; }
-        #workload-graph {
-            width: 100%;
-            height: 500px;
+        .graph-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1.5rem;
+            align-items: center;
+            margin-left: auto;
+        }
+        .legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+        .legend-color { width: 12px; height: 12px; border-radius: 2px; }
+        .legend-color.diamond { width: 10px; height: 10px; transform: rotate(45deg); }
+        .legend-color.dot { border-radius: 50%; }
+        .legend-color.triangle { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 12px solid; background-color: transparent !important; }
+        #graph-info-panel {
+            position: absolute;
+            top: 45px;
+            right: 0;
+            width: 350px;
+            max-height: 550px;
+            overflow-y: auto;
+            background-color: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(5px);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            background-color: var(--bg-color);
+            padding: 1rem;
+            color: var(--text-primary);
+            z-index: 10;
+            display: none;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            font-size: 0.875rem;
         }
-        /* Vulnerability and Insight styles */
-        .vulnerability-badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            margin-right: 4px;
+        #graph-info-panel h3 { margin-top: 0; font-size: 1.1rem; }
+        #graph-info-panel .info-grid { display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem 1rem; }
+        #graph-info-panel .info-grid strong { color: var(--text-secondary); }
+        #graph-info-panel .info-grid span { word-break: break-all; }
+        #graph-info-panel hr { border-color: var(--border-color); margin: 1rem 0; }
+        #graph-info-close {
+            position: absolute; top: 10px; right: 10px; cursor: pointer;
+            background: none; border: none; color: var(--text-secondary);
         }
-        .vulnerability-badge.critical { background-color: #991b1b; color: #fecaca; }
-        .vulnerability-badge.high { background-color: #9a3412; color: #fed7aa; }
-        .vulnerability-badge.error { background-color: #4b5563; color: #d1d5db; }
 
         .insights-grid {
             display: grid;
@@ -143,7 +158,7 @@
         <div class="tab-nav">
             <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
             <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="bar-chart-2"></i>Analysis & Insights</button>
-            <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads & Actions</button>
+            <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
             <button class="tab-link" onclick="openTab(event, 'compute')"><i data-feather="hard-drive"></i>Compute</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
             <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="activity"></i>Observability</button>
@@ -253,31 +268,6 @@
                 </div>
             </div>
             <div class="widget">
-                <div class="widget-header"><h2>Container Image Vulnerability Summary</h2></div>
-                <div class="widget-content">
-                    {% if cluster.workloads and cluster.workloads.vulnerable_images %}
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead><tr><th>Image</th><th>Critical</th><th>High</th></tr></thead>
-                            <tbody>
-                                {% for image, vulns in cluster.workloads.vulnerable_images.items() %}
-                                <tr>
-                                    <td class="code">{{ image }}</td>
-                                    <td>{{ vulns.CRITICAL }}</td>
-                                    <td>{{ vulns.HIGH }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% elif cluster.workloads and not cluster.workloads.error %}
-                    <p class="text-muted" style="text-align:center; padding: 20px 0;">No images with CRITICAL or HIGH vulnerabilities found.</p>
-                    {% else %}
-                    <p class="text-muted" style="text-align:center; padding: 20px 0;">Could not retrieve vulnerability data.</p>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="widget">
                 <div class="widget-header"><h2>Security Best Practices Checklist</h2></div>
                 <div class="widget-content">
                     {% if cluster.security_insights %}
@@ -302,33 +292,43 @@
             </div>
         </div>
         
-        <!-- Workloads & Actions Tab -->
+        <!-- Workloads Tab -->
         <div id="workloads" class="tab-content">
             {% if (cluster.deployments is defined and cluster.workloads is defined) and not cluster.workloads.error %}
-                <div id="workload-graph-container" class="widget">
-                    <div class="widget-header"><h2>Workload Relationship Map</h2></div>
-                    <div class="widget-content" style="padding: 0;"><div id="workload-graph"></div></div>
+                <div id="workload-graph-wrapper">
+                    <div id="workload-graph-container">
+                        <div class="graph-controls">
+                            <input type="text" id="graph-search" placeholder="Search for a resource by name...">
+                            <div class="graph-legend">
+                                <div class="legend-item"><span class="legend-color diamond" style="background-color: #7c3aed;"></span> Ingress</div>
+                                <div class="legend-item"><span class="legend-color" style="background-color: #2563eb;"></span> Service</div>
+                                <div class="legend-item"><span class="legend-color dot" style="background-color: #16a34a;"></span> Pod</div>
+                                <div class="legend-item"><span class="legend-color triangle" style="border-bottom-color: #64748b;"></span> Node</div>
+                            </div>
+                        </div>
+                        <div id="workload-graph"></div>
+                    </div>
+                    <div id="graph-info-panel">
+                        <button id="graph-info-close"><i data-feather="x"></i></button>
+                        <h3 id="info-panel-title"></h3>
+                        <div id="info-panel-body" class="info-grid"></div>
+                    </div>
                 </div>
                 <div class="widget">
                     <div class="widget-header"><h2>Deployments</h2></div>
                     <div class="widget-content">
                         <div class="table-container">
                             <table class="data-table">
-                                <thead><tr><th>Name</th><th>Namespace</th><th>Replicas</th><th>Actions</th></tr></thead>
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Replicas</th></tr></thead>
                                 <tbody>
                                     {% for dep in cluster.deployments %}
                                     <tr>
                                         <td>{{ dep.metadata.name }}</td>
                                         <td>{{ dep.metadata.namespace }}</td>
                                         <td><span class="status-badge status-{{ 'active' if dep.status.ready_replicas == dep.spec.replicas else 'updating' }}">{{ dep.status.ready_replicas or 0 }}/{{ dep.spec.replicas }}</span></td>
-                                        <td>
-                                            <button class="action-button" onclick="handleWorkloadAction(event, '{{ dep.metadata.namespace }}', 'Deployment', '{{ dep.metadata.name }}', 'restart')"><i data-feather="refresh-cw"></i> Restart</button>
-                                            <input type="number" value="{{ dep.spec.replicas }}" min="0" class="scale-input" id="scale-{{ dep.metadata.uid }}">
-                                            <button class="action-button" onclick="handleWorkloadAction(event, '{{ dep.metadata.namespace }}', 'Deployment', '{{ dep.metadata.name }}', 'scale', 'scale-{{ dep.metadata.uid }}')"><i data-feather="move"></i> Scale</button>
-                                        </td>
                                     </tr>
                                     {% else %}
-                                    <tr><td colspan="4" class="text-muted" style="text-align:center;">No deployments found.</td></tr>
+                                    <tr><td colspan="3" class="text-muted" style="text-align:center;">No deployments found.</td></tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
@@ -340,7 +340,7 @@
                     <div class="widget-content">
                         <div class="table-container">
                              <table class="data-table">
-                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th><th>Vulnerabilities</th><th>Actions</th></tr></thead>
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th></tr></thead>
                                 <tbody>
                                     {% for pod in cluster.workloads.pods %}
                                     <tr>
@@ -350,19 +350,9 @@
                                         <td><span class="status-badge status-{{ pod.status.phase.lower() }}">{{ pod.status.phase }}</span></td>
                                         <td>{{ pod.restarts }}</td>
                                         <td>{{ pod.age }}</td>
-                                        <td>
-                                            {% if pod.vulnerability_summary.error %}<span class="vulnerability-badge error" title="{{ pod.vulnerability_summary.error }}">Scan Error</span>
-                                            {% elif pod.vulnerability_summary.CRITICAL > 0 or pod.vulnerability_summary.HIGH > 0 %}
-                                                {% if pod.vulnerability_summary.CRITICAL > 0 %}<span class="vulnerability-badge critical">C: {{ pod.vulnerability_summary.CRITICAL }}</span>{% endif %}
-                                                {% if pod.vulnerability_summary.HIGH > 0 %}<span class="vulnerability-badge high">H: {{ pod.vulnerability_summary.HIGH }}</span>{% endif %}
-                                            {% else %}<span class="text-muted">None Found</span>{% endif %}
-                                        </td>
-                                        <td>
-                                             <button class="action-button" onclick="handleWorkloadAction(event, '{{ pod.metadata.namespace }}', 'Pod', '{{ pod.metadata.name }}', 'delete_pod')"><i data-feather="trash-2"></i> Delete</button>
-                                        </td>
                                     </tr>
                                     {% else %}
-                                    <tr><td colspan="8" class="text-muted" style="text-align:center;">No pods found.</td></tr>
+                                    <tr><td colspan="6" class="text-muted" style="text-align:center;">No pods found.</td></tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
@@ -475,116 +465,183 @@
 
 {% block scripts_extra %}
 <script>
-    // Store workloads data from Jinja to be accessible in JS for the graph
     const workloadsData = {{ cluster.workloads | tojson | safe if cluster.workloads else 'null' }};
     let workloadGraphRendered = false;
+    let visNetwork, visNodes, visEdges;
+    
+    // --- Global State for Page ---
+    let eventSource = null;
+    let logStreamStarted = false;
 
     function openTab(evt, tabName) {
+        // Close any active streams when switching tabs
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+
         document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
         document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
         document.getElementById(tabName).style.display = 'block';
         evt.currentTarget.classList.add('active');
 
-        // Render workload graph only when its tab is opened for the first time
         if (tabName === 'workloads' && !workloadGraphRendered) {
             renderWorkloadGraph();
             workloadGraphRendered = true;
+        } else if (tabName === 'logs' && !logStreamStarted) {
+            startLogStream();
+            logStreamStarted = true;
         }
         feather.replace();
     }
-
-    // Workload Action Handler (from original code)
-    async function handleWorkloadAction(event, namespace, kind, name, action, scaleInputId = null) {
-        let payload = { namespace, kind, name, action };
-        let confirmMessage = `Are you sure you want to ${action.replace('_', ' ')} ${kind} "${name}" in namespace "${namespace}"?`;
-
-        if (action === 'scale') {
-            const scaleValue = document.getElementById(scaleInputId).value;
-            payload.replicas = parseInt(scaleValue, 10);
-            if (isNaN(payload.replicas) || payload.replicas < 0) {
-                alert('Please enter a valid non-negative number for replicas.');
-                return;
-            }
-            confirmMessage = `Are you sure you want to scale ${kind} "${name}" to ${payload.replicas} replicas?`;
-        }
-        
-        if (!confirm(confirmMessage)) return;
-
-        const button = event.currentTarget;
-        const originalHtml = button.innerHTML;
-        button.innerHTML = '<i data-feather="loader" class="spin"></i>';
-        button.disabled = true;
-        feather.replace();
-
-        try {
-            const response = await fetch('/api/actions/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            const result = await response.json();
-            if (!response.ok) {
-                throw new Error(result.error || 'An unknown error occurred.');
-            }
-            alert(`Success: ${result.success}`);
-            button.innerHTML = '<i data-feather="check"></i> Success';
-            feather.replace();
-            setTimeout(() => window.location.reload(), 1500);
-        } catch (error) {
-            alert(`Action failed: ${error.message}`);
-            button.innerHTML = originalHtml;
-            button.disabled = false;
-            feather.replace();
-        }
-    }
-
-    // Function to render the workload graph (from updated code)
+    
+    // --- START: Workload Graph Logic ---
     function renderWorkloadGraph() {
+        const container = document.getElementById('workload-graph');
         if (!workloadsData || workloadsData.error || !workloadsData.map_nodes) {
-            document.getElementById('workload-graph').innerHTML = '<p class="text-muted" style="text-align:center; padding-top: 50px;">Could not render workload graph. Data is unavailable.</p>';
+            container.innerHTML = '<p class="text-muted" style="text-align:center; padding: 50px;">Could not render workload graph. Data is unavailable.</p>';
             return;
         }
 
-        const container = document.getElementById('workload-graph');
-        const data = {
-            nodes: new vis.DataSet(workloadsData.map_nodes),
-            edges: new vis.DataSet(workloadsData.map_edges),
-        };
-
+        visNodes = new vis.DataSet(workloadsData.map_nodes);
+        visEdges = new vis.DataSet(workloadsData.map_edges);
+        
+        const data = { nodes: visNodes, edges: visEdges };
         const options = {
-            nodes: { shape: 'dot', size: 16, font: { size: 12, color: 'var(--text-primary)' }, borderWidth: 2 },
-            edges: { width: 1, color: { inherit: 'from' }, smooth: { type: 'continuous' } },
+            nodes: {
+                shape: 'dot', size: 18,
+                font: { size: 14, color: 'var(--text-secondary)' },
+                borderWidth: 2,
+            },
+            edges: {
+                width: 1,
+                color: { color: 'var(--border-color)', highlight: '#86efac', hover: '#6ee7b7' },
+                smooth: { type: 'continuous' }
+            },
             groups: {
-                ingress: { color: { background: '#7c3aed', border: '#a78bfa' }, shape: 'diamond' },
-                svc: { color: { background: '#2563eb', border: '#60a5fa' }, shape: 'square' },
-                pod: { color: { background: '#16a34a', border: '#4ade80' }, shape: 'dot' },
-                node: { color: { background: '#64748b', border: '#94a3b8' }, shape: 'triangle' },
+                ingress: { color: { background: '#7c3aed', border: '#a78bfa', highlight: { background: '#8b5cf6', border: '#c4b5fd' } }, shape: 'diamond' },
+                svc: { color: { background: '#2563eb', border: '#60a5fa', highlight: { background: '#3b82f6', border: '#93c5fd' } }, shape: 'square' },
+                pod: { color: { background: '#16a34a', border: '#4ade80', highlight: { background: '#22c55e', border: '#86efac' } }, shape: 'dot' },
+                node: { color: { background: '#64748b', border: '#94a3b8', highlight: { background: '#94a3b8', border: '#cbd5e1' } }, shape: 'triangle' },
             },
             physics: {
                 solver: 'forceAtlas2Based',
-                forceAtlas2Based: { gravitationalConstant: -30, centralGravity: 0.005, springLength: 250, springConstant: 0.18 },
-                maxVelocity: 150, minVelocity: 0.75, stabilization: { iterations: 150 },
+                forceAtlas2Based: { gravitationalConstant: -40, centralGravity: 0.01, springLength: 230, springConstant: 0.1 },
+                maxVelocity: 146, minVelocity: 0.75,
+                stabilization: { iterations: 150, fit: true },
             },
-            interaction: { tooltipDelay: 200, hideEdgesOnDrag: true, hover: true },
+            interaction: { tooltipDelay: 200, hideEdgesOnDrag: true, hover: true, navigationButtons: true },
+            layout: { improvedLayout: true }
         };
 
-        const network = new vis.Network(container, data, options);
+        visNetwork = new vis.Network(container, data, options);
+        setupGraphInteractions();
     }
 
+    function setupGraphInteractions() {
+        const infoPanel = document.getElementById('graph-info-panel');
+        const searchInput = document.getElementById('graph-search');
+
+        visNetwork.on('click', (properties) => {
+            if (properties.nodes.length > 0) {
+                const nodeId = properties.nodes[0];
+                const nodeData = visNodes.get(nodeId);
+                populateInfoPanel(nodeData.details);
+                highlightNodeAndConnections(nodeId);
+            } else {
+                resetHighlightAndPanel();
+            }
+        });
+
+        document.getElementById('graph-info-close').addEventListener('click', resetHighlightAndPanel);
+
+        searchInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            if (!searchTerm) {
+                resetHighlightAndPanel();
+                return;
+            }
+            const foundNode = workloadsData.map_nodes.find(n => n.label.toLowerCase().includes(searchTerm));
+            if (foundNode) {
+                visNetwork.focus(foundNode.id, { scale: 1.2, animation: true });
+                populateInfoPanel(foundNode.details);
+                highlightNodeAndConnections(foundNode.id);
+            }
+        });
+    }
+
+    function populateInfoPanel(details) {
+        const panel = document.getElementById('graph-info-panel');
+        const titleEl = document.getElementById('info-panel-title');
+        const bodyEl = document.getElementById('info-panel-body');
+
+        titleEl.textContent = `${details.kind}: ${details.name}`;
+        let html = '';
+        for (const [key, value] of Object.entries(details)) {
+            if (key === 'kind' || key === 'name') continue;
+            let displayValue = value;
+            if (Array.isArray(value)) {
+                displayValue = value.length > 0 ? `<ul>${value.map(item => `<li>${JSON.stringify(item)}</li>`).join('')}</ul>` : 'None';
+            } else if (typeof value === 'object' && value !== null) {
+                displayValue = JSON.stringify(value, null, 2);
+            } else {
+                displayValue = `<span>${value || 'N/A'}</span>`;
+            }
+            const displayKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            html += `<strong>${displayKey}</strong><div>${displayValue}</div>`;
+        }
+        bodyEl.innerHTML = html;
+        panel.style.display = 'block';
+        feather.replace();
+    }
+
+    function highlightNodeAndConnections(nodeId) {
+        const allNodes = visNodes.get({ returnType: 'Object' });
+        const allEdges = visEdges.get();
+        const connectedNodes = visNetwork.getConnectedNodes(nodeId);
+        connectedNodes.push(nodeId);
+
+        for (const id in allNodes) {
+            const node = allNodes[id];
+            if (!connectedNodes.includes(id)) {
+                node.color = { border: '#334155', background: '#1e293b' };
+                node.font = { color: '#475569' };
+            }
+        }
+        visNodes.update(Object.values(allNodes));
+
+        allEdges.forEach(edge => {
+            if (edge.from !== nodeId && edge.to !== nodeId) {
+                edge.color = '#334155';
+            } else {
+                 edge.color = { color: '#86efac', highlight: '#86efac' };
+            }
+        });
+        visEdges.update(allEdges);
+    }
+    
+    function resetHighlightAndPanel() {
+        document.getElementById('graph-info-panel').style.display = 'none';
+        visNodes.update(workloadsData.map_nodes);
+        visEdges.update(workloadsData.map_edges);
+        document.getElementById('graph-search').value = '';
+    }
+    // --- END: Workload Graph Logic ---
+    
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('overview').style.display = 'block';
         feather.replace();
 
-        // --- Refresh Button Logic ---
+        // --- FIXED: Refresh Button Logic ---
         const refreshBtn = document.getElementById('refreshBtn');
         if (refreshBtn) {
             refreshBtn.addEventListener('click', async () => {
                 refreshBtn.disabled = true;
                 refreshBtn.innerHTML = '<i data-feather="loader" class="spin"></i> Refreshing...';
                 feather.replace();
-
                 try {
-                    const response = await fetch('/api/refresh-data', { method: 'POST' });
+                    const url = `/api/refresh-cluster/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}`;
+                    const response = await fetch(url, { method: 'POST' });
                     if (response.ok) {
                         window.location.reload();
                     } else {
@@ -632,38 +689,69 @@
             });
         });
 
-        // Enhanced LOG STREAMING LOGIC
+        // --- FIXED: High-Performance Log Streaming Logic ---
         const logSelector = document.getElementById('log-type-selector');
         const logOutput = document.getElementById('log-output');
-        let eventSource;
+        const MAX_LOG_LINES = 500; // Cap to prevent browser crash
+
         function startLogStream() {
             if (eventSource) eventSource.close();
-            logOutput.textContent = 'Connecting to log stream...';
+            logOutput.innerHTML = ''; // Clear previous logs
+            
+            const connectingMsg = document.createElement('div');
+            connectingMsg.className = 'text-muted';
+            connectingMsg.textContent = 'Connecting to log stream...';
+            logOutput.appendChild(connectingMsg);
+
             const logType = logSelector.value;
             const url = `/api/logs/{{ cluster.account_id }}/{{ cluster.region }}/{{ cluster.name }}/${logType}`;
             eventSource = new EventSource(url);
             let firstMessage = true;
+
             eventSource.onmessage = function(event) {
-                if (firstMessage) { logOutput.textContent = ''; firstMessage = false; }
+                if (firstMessage) {
+                    logOutput.innerHTML = ''; // Clear "Connecting..." message
+                    firstMessage = false;
+                }
+
                 const data = JSON.parse(event.data);
+                const logLine = document.createElement('div');
+                logLine.className = 'log-line';
+
                 if (data.error) {
-                    logOutput.textContent += `\nERROR: ${data.error}`;
+                    logLine.className += ' error';
+                    logLine.textContent = `ERROR: ${data.error}`;
                     eventSource.close();
                 } else {
-                    const line = data.message || JSON.stringify(data);
+                    const message = data.message || JSON.stringify(data);
                     const timestamp = data.timestamp ? new Date(data.timestamp).toISOString() : '';
-                    logOutput.textContent += `[${timestamp}] ${line}\n`;
+                    logLine.textContent = `[${timestamp}] ${message}`;
                 }
+                
+                logOutput.appendChild(logLine);
+
+                // Efficiently remove old lines if limit is exceeded
+                if (logOutput.childElementCount > MAX_LOG_LINES) {
+                    logOutput.removeChild(logOutput.firstChild);
+                }
+                
+                // Auto-scroll to the bottom
                 logOutput.scrollTop = logOutput.scrollHeight;
             };
+
             eventSource.onerror = function() {
-                logOutput.textContent += '\n\nConnection to log stream lost or stream ended.';
-                eventSource.close();
+                const errorLine = document.createElement('div');
+                errorLine.className = 'log-line error';
+                errorLine.textContent = 'Connection to log stream lost or stream ended.';
+                logOutput.appendChild(errorLine);
+                logOutput.scrollTop = logOutput.scrollHeight;
+                if (eventSource) eventSource.close();
             };
         }
         if(logSelector) logSelector.addEventListener('change', startLogStream);
 
-        // Enhanced Observability Metrics Logic
+
+        // Observability Metrics Logic
         const observabilityTabButton = document.querySelector('button[onclick*="observability"]');
         let metricsLoaded = false;
         let metricCharts = {};
@@ -749,4 +837,3 @@
     });
 </script>
 {% endblock %}
-

@@ -282,6 +282,8 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('dashboard-filters').innerHTML = createFilterHtml();
+            
+            // RESTORED: This logic sets the last refreshed time on the dashboard page.
             if (lastRefreshed.valueOf()) {
                 document.getElementById('last-refreshed-time').textContent = `Refreshed: ${lastRefreshed.toLocaleTimeString()}`;
             }
@@ -308,28 +310,6 @@
             });
             document.getElementById('account-top-n').addEventListener('change', (e) => updateDashboard({ topNAccounts: e.target.value === 'Infinity' ? Infinity : parseInt(e.target.value, 10) }));
             document.getElementById('region-top-n').addEventListener('change', (e) => updateDashboard({ topNRegions: e.target.value === 'Infinity' ? Infinity : parseInt(e.target.value, 10) }));
-
-            document.getElementById('refresh-data-btn').addEventListener('click', async (e) => {
-                const btn = e.currentTarget;
-                const icon = btn.querySelector('svg');
-                
-                if (icon) icon.classList.add('spin');
-                btn.disabled = true;
-                
-                try {
-                    const response = await fetch('/api/refresh-data', { method: 'POST' });
-                    if (response.ok) {
-                        window.location.reload();
-                    } else {
-                        alert('Failed to refresh data. Please try again.');
-                    }
-                } catch (error) {
-                    alert('An error occurred while refreshing data.');
-                } finally {
-                    if (icon) icon.classList.remove('spin');
-                    btn.disabled = false;
-                }
-            });
             
             document.querySelectorAll('.clickable-row').forEach(row => row.addEventListener('click', () => window.location.href = row.dataset.href));
             document.getElementById('export-clusters-csv').addEventListener('click', () => exportTableToCSV('clusters-table', 'eks-clusters-export.csv'));

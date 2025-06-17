@@ -29,7 +29,6 @@ from aws_data_fetcher import (
     upgrade_nodegroup_version,
     stream_cloudwatch_logs,
     get_cluster_metrics,
-    manage_workload  # <-- INTEGRATED NEW IMPORT
 )
 
 # Load environment variables from your .env file
@@ -204,36 +203,19 @@ async def refresh_data(user: dict = Depends(get_current_user)):
     logging.info(f"Cache cleared by user: {user.get('email')}")
     return JSONResponse(content={"status": "success", "message": "Cache cleared."})
 
-# --- NEW API ROUTE FOR WORKLOAD ACTIONS ---
-@app.post("/api/actions/{account_id}/{region}/{cluster_name}", tags=["API"])
-async def api_manage_workload(request: Request, account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
+# --- NEW/FIXED API ROUTE FOR CLUSTER-SPECIFIC REFRESH ---
+@app.post("/api/refresh-cluster/{account_id}/{region}/{cluster_name}", tags=["API"])
+async def refresh_cluster_data(account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
-    
-    action_details = await request.json()
-    
-    # Determine if a role is needed for cross-account access
-    role_arn = None
-    try:
-        self_account_id = boto3.client('sts').get_caller_identity().get('Account')
-        if account_id != self_account_id:
-            role_arn = get_role_arn_for_account(account_id)
-            if not role_arn:
-                return JSONResponse(status_code=404, content={"error": f"Role ARN not found for target account {account_id}."})
-    except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
-         return JSONResponse(status_code=500, content={"error": f"Could not determine self-account ID: {e}"})
-
-    # Call the backend function to perform the action
-    result = manage_workload(
-        account_id=account_id,
-        region=region,
-        cluster_name=cluster_name,
-        role_arn=role_arn,
-        action_details=action_details
-    )
-    
-    if "error" in result:
-        return JSONResponse(status_code=400, content=result)
-    return JSONResponse(content=result)
+    cache_key = f"cluster_{account_id}_{region}_{cluster_name}"
+    if cache_key in cache:
+        try:
+            del cache[cache_key]
+            logging.info(f"Cache for cluster {cluster_name} cleared by user: {user.get('email')}")
+            return JSONResponse(content={"status": "success", "message": f"Cache for {cluster_name} cleared."})
+        except KeyError:
+             logging.warning(f"Cache key {cache_key} disappeared before deletion.")
+    return JSONResponse(content={"status": "success", "message": "Cluster was not in cache or already removed."})
 
 @app.post("/api/upgrade-nodegroup", tags=["API"])
 async def api_upgrade_nodegroup(request: Request, user: dict = Depends(get_current_user)):
