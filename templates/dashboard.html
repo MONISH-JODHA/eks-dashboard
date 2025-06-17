@@ -10,7 +10,7 @@
 
 {% block content %}
     <p class="page-subtitle">
-        Interactive overview of your Amazon EKS clusters. Click on charts or summary cards to filter data.
+        An interactive fleet-wide overview of your Amazon EKS clusters.
     </p>
 
     {% if errors %}
@@ -24,20 +24,20 @@
         </div>
     {% endif %}
 
-    <h3 class="section-title">Cluster Fleet Summary</h3>
+    <h3 class="section-title">Fleet Summary</h3>
     <div class="quick-info-grid">
          <div class="info-box clickable-filter" data-filter-key="all" data-filter-value="all"><div class="icon-bg"><i data-feather="server"></i></div><div><div class="value" id="quick-info-total-clusters">{{ quick_info.total_clusters | default(0) }}</div><div class="label">Total Clusters</div></div></div>
-         <!-- <div class="info-box"><div class="icon-bg"><i data-feather="dollar-sign"></i></div><div><div class="value" id="quick-info-cost">{{ quick_info.total_cost_30d | default("$0.00") }}</div><div class="label">Est. Cost (30d)</div></div></div> -->
-         <div class="info-box clickable-filter" data-filter-key="health" data-filter-value="HAS_ISSUES"><div class="icon-bg"><i data-feather="alert-triangle"></i></div><div><div class="value">{{ quick_info.clusters_with_health_issues | default(0) }}</div><div class="label">With Health Issues</div></div></div>
-         <div class="info-box clickable-filter" data-filter-key="upgrade" data-filter-value="NEEDS_ATTENTION"><div class="icon-bg"><i data-feather="tool"></i></div><div><div class="value">{{ quick_info.clusters_with_upgrade_insights_attention | default(0) }}</div><div class="label">Needs Upgrade Attention</div></div></div>
+         <div class="info-box clickable-filter" data-filter-key="health" data-filter-value="HAS_ISSUES"><div class="icon-bg"><i data-feather="activity"></i></div><div><div class="value">{{ quick_info.clusters_with_health_issues | default(0) }}</div><div class="label">With Health Issues</div></div></div>
+         <div class="info-box clickable-filter" data-filter-key="upgrade" data-filter-value="NEEDS_ATTENTION"><div class="icon-bg"><i data-feather="tool"></i></div><div><div class="value">{{ quick_info.clusters_with_upgrade_insights_attention | default(0) }}</div><div class="label">Upgrade Attention</div></div></div>
          <div class="info-box clickable-filter" data-filter-key="eol" data-filter-value="true"><div class="icon-bg"><i data-feather="calendar"></i></div><div><div class="value">{{ quick_info.clusters_nearing_eol_90_days | default(0) }}</div><div class="label">Nearing EOL (90d)</div></div></div>
-         <div class="info-box"><div class="icon-bg"><i data-feather="users"></i></div><div><div class="value" id="quick-info-accounts">{{ quick_info.accounts_running_kubernetes_clusters | default(0) }}</div><div class="label">Active Accounts</div></div></div>
+         <div class="info-box"><div class="icon-bg"><i data-feather="briefcase"></i></div><div><div class="value" id="quick-info-accounts">{{ quick_info.accounts_running_kubernetes_clusters | default(0) }}</div><div class="label">Active Accounts</div></div></div>
+         <div class="info-box"><div class="icon-bg"><i data-feather="dollar-sign"></i></div><div><div class="value" id="quick-info-cost">{{ quick_info.total_cost_30d | default("$0.00") }}</div><div class="label">Est. Cost (30d)</div></div></div>
     </div>
 
     <div class="widget-grid-dynamic">
         <div class="widget">
             <div class="widget-header">
-                <h2><i data-feather="users"></i>Clusters by Account</h2>
+                <h2><i data-feather="briefcase"></i>Clusters by Account</h2>
                 <div class="widget-actions">
                     <label for="account-top-n">Top</label>
                     <select id="account-top-n">
@@ -73,7 +73,7 @@
              <h2 id="clusters-table-title">All Clusters</h2>
              <button id="export-clusters-csv" class="export-btn"><i data-feather="download"></i> Export to CSV</button>
         </div>
-        <div class="widget-content">
+        <div class="widget-content" style="padding: 0;">
             <div class="table-container">
                 <table class="data-table" id="clusters-table">
                     <thead>
@@ -91,11 +91,13 @@
                             <td class="insight-cell"><span class="insight-badge insight-{{ cluster.upgrade_insight_status.lower().replace('_', '-') }}">{{ cluster.upgrade_insight_status | replace('_', ' ') | title }}</span></td>
                             <td class="cost-cell">{{ cluster.cost_30d | default('N/A') }}</td>
                         </tr>
+                        {% else %}
+                        <tr><td colspan="8" style="text-align: center; padding: 2rem;" class="text-muted">No clusters found.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            <p id="no-clusters-message" class="text-muted" style="display: none;">No clusters match the current filters.</p>
+            <p id="no-clusters-message" class="text-muted" style="display: none; text-align: center; padding: 2rem;">No clusters match the current filters.</p>
         </div>
     </div>
 {% endblock %}
@@ -124,7 +126,7 @@
         function createFilterHtml() {
             return `
                 <div class="filter-group">
-                    <h4 class="filter-title">Filters</h4>
+                    <h4 class="filter-title">Quick Filters</h4>
 
                     <label for="filter-cluster-name">Go to Cluster</label>
                     <select id="filter-cluster-name">
@@ -218,16 +220,16 @@
             const labels = Object.keys(data).sort((a,b) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
             const values = labels.map(label => data[label]);
             if (values.length === 0) {
-                 widgetContent.innerHTML = `<div class="chart-container"><canvas id="${canvasId}"></canvas><p class="text-muted" style="text-align:center; padding-top: 50px;">No data for this view.</p></div>`;
+                 widgetContent.innerHTML = `<div class="chart-container"><canvas id="${canvasId}"></canvas><p class="text-muted" style="text-align:center; padding: 4rem 0;">No data for this view.</p></div>`;
                  return;
             }
             widgetContent.innerHTML = `<div class="chart-container"><canvas id="${canvasId}"></canvas></div>`;
             const newCtx = document.getElementById(canvasId);
-            const chartColors = ['#4A90E2', '#F5A623', '#50E3C2', '#BD10E0', '#B8E986', '#7B68EE', '#E94E77'];
-            const healthStatusColors = {'HEALTHY': '#50E3C2', 'HAS_ISSUES': '#F5A623', 'UNKNOWN': '#9B9B9B'};
-            let datasetOptions = type === 'bar' ? { backgroundColor: chartColors[0] } : { backgroundColor: canvasId === 'healthStatusChart' ? labels.map(l => healthStatusColors[l] || '#4A4A4A') : chartColors, borderColor: '#1E293B', borderWidth: 3 };
-            const baseOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: type === 'doughnut', position: 'right', labels: { color: '#aab7b8' } }, tooltip: { backgroundColor: '#0F172A', titleColor: '#e2e8f0', bodyColor: '#cbd5e0', borderColor: '#334155', borderWidth: 1 }}};
-            const barOptions = { ...baseOptions, scales: { x: { ticks: { color: '#94a3b8' }, grid: { display: false } }, y: { ticks: { color: '#94a3b8', precision: 0 }, grid: { color: '#334155' } } }};
+            const chartColors = ['#0D6EFD', '#6f42c1', '#198754', '#fd7e14', '#ffc107', '#0dcaf0', '#d63384'];
+            const healthStatusColors = {'HEALTHY': '#198754', 'HAS_ISSUES': '#FFC107', 'UNKNOWN': '#ADB5BD'};
+            let datasetOptions = type === 'bar' ? { backgroundColor: chartColors[0] } : { backgroundColor: canvasId === 'healthStatusChart' ? labels.map(l => healthStatusColors[l] || '#6C757D') : chartColors, borderColor: 'var(--surface-color)', borderWidth: 3 };
+            const baseOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: type === 'doughnut', position: 'right', labels: { color: 'var(--text-secondary)' } }, tooltip: { backgroundColor: 'var(--text-primary)', titleColor: 'var(--text-secondary)', bodyColor: 'var(--text-primary)', bodyFont: { weight: 'bold' }, borderColor: 'var(--border-color)', borderWidth: 1 }}};
+            const barOptions = { ...baseOptions, scales: { x: { ticks: { color: 'var(--text-secondary)' }, grid: { display: false } }, y: { ticks: { color: 'var(--text-secondary)', precision: 0 }, grid: { color: 'var(--border-color)' } } }};
             charts[canvasId] = new Chart(newCtx, { type: type, data: { labels: labels, datasets: [{ label: 'Clusters', data: values, ...datasetOptions }] }, options: type === 'bar' ? barOptions : baseOptions });
             if (filterKey) {
                 newCtx.onclick = (evt) => {
@@ -283,7 +285,6 @@
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('dashboard-filters').innerHTML = createFilterHtml();
             
-            // RESTORED: This logic sets the last refreshed time on the dashboard page.
             if (lastRefreshed.valueOf()) {
                 document.getElementById('last-refreshed-time').textContent = `Refreshed: ${lastRefreshed.toLocaleTimeString()}`;
             }
