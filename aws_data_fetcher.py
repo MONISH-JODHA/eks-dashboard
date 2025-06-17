@@ -12,6 +12,7 @@ import base64
 import requests
 import subprocess
 from functools import lru_cache
+import re
 
 # --- New Kubernetes & Analysis Imports ---
 from kubernetes import client, config
@@ -103,19 +104,7 @@ def parse_quantity(s: str):
     if s.isdigit(): return int(s) # Plain CPU cores
     return 0
 
-def get_eks_token(cluster_name: str, role_arn: str = None) -> str:
-    """
-    Generates an EKS authentication token using the AWS CLI.
-    This is used by the requests-based fetchers.
-    """
-    command = ["aws", "eks", "get-token", "--cluster-name", cluster_name]
-    if role_arn: command.extend(["--role-arn", role_arn])
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
-        return json.loads(result.stdout)["status"]["token"]
-    except Exception as e:
-        print(f"ERROR getting EKS token for cluster {cluster_name}: {e}")
-        raise
+# REMOVED get_eks_token as it's no longer needed
 
 # --- Agentless Feature Logic ---
 def get_pod_metrics(custom_objects_api):
@@ -238,7 +227,7 @@ def get_cost_optimization_insights(session, region, cluster_name):
         print(f"Warning: Could not check for idle LBs. Permission might be missing. {e}")
     return insights
 
-# --- Cost Fetcher Function ---
+# --- Cost Fetcher Functions ---
 def get_cost_for_clusters(session, cluster_names: list):
     """Fetches cost data from AWS Cost Explorer for a list of clusters, grouped by a specific tag."""
     if not cluster_names: return {}
@@ -264,6 +253,72 @@ def get_cost_for_clusters(session, cluster_names: list):
         print(f"UNEXPECTED ERROR fetching cost data: {e}")
         return {}
 
+def get_cost_breakdown(account_id, region, cluster_name, role_arn=None):
+    """Fetches a cost breakdown by service for a specific cluster."""
+    session = get_session(role_arn)
+    if not session: return {"error": f"Failed to get session for account {account_id}."}
+    cost_client = session.client('ce', region_name='us-east-1')
+    start_date = (datetime.now(timezone.utc) - relativedelta(days=30)).strftime('%Y-%m-%d')
+    end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    try:
+        response = cost_client.get_cost_and_usage(
+            TimePeriod={'Start': start_date, 'End': end_date}, Granularity='MONTHLY',
+            Filter={"Tags": {"Key": COST_TAG_KEY, "Values": [cluster_name], "MatchOptions": ["EQUALS"]}},
+            Metrics=['UnblendedCost'], GroupBy=[{'Type': 'DIMENSION', 'Key': 'SERVICE'}]
+        )
+        results = [
+            {"service": group['Keys'][0], "amount": float(group['Metrics']['UnblendedCost']['Amount'])}
+            for group in response['ResultsByTime'][0]['Groups']
+        ]
+        return sorted(results, key=lambda x: x['amount'], reverse=True)
+    except ClientError as e:
+        return {'error': f"Could not fetch cost breakdown: {e.response['Error']['Message']}"}
+
+def get_instance_type_pricing(region: str):
+    """
+    Returns a representative, hardcoded map of on-demand instance prices per hour.
+    This is a simplified proof-of-concept. A real implementation would use the Price List API.
+    """
+    # Prices are for Linux, On-Demand, in USD per hour. Last checked early 2024.
+    pricing = {
+        'us-east-1': {
+            't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664,
+            'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384,
+            'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'm6i.2xlarge': 0.384,
+            'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34,
+            'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504,
+        },
+        'us-west-2': {
+            't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664,
+            'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384,
+            'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'm6i.2xlarge': 0.384,
+            'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34,
+            'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504,
+        }
+    }
+    return pricing.get(region, pricing['us-east-1']) # Default to us-east-1 if region not found
+
+def calculate_what_if_cost(region, current_instance_type, target_instance_type, instance_count):
+    """Calculates the estimated monthly savings for an instance type change."""
+    pricing_map = get_instance_type_pricing(region)
+    current_price = pricing_map.get(current_instance_type)
+    target_price = pricing_map.get(target_instance_type)
+
+    if current_price is None:
+        return {"error": f"Pricing for current instance type '{current_instance_type}' not available in this demo."}
+    if target_price is None:
+        return {"error": f"Pricing for target instance type '{target_instance_type}' not available in this demo."}
+
+    # 730 hours in a month on average
+    current_monthly_cost = current_price * instance_count * 730
+    target_monthly_cost = target_price * instance_count * 730
+    monthly_savings = current_monthly_cost - target_monthly_cost
+
+    return {
+        "current_monthly_cost": current_monthly_cost,
+        "target_monthly_cost": target_monthly_cost,
+        "monthly_savings": monthly_savings,
+    }
 
 # --- Detailed AWS Fetcher Functions ---
 def fetch_managed_nodegroups(eks_client, cluster_name):
@@ -281,64 +336,67 @@ def fetch_managed_nodegroups(eks_client, cluster_name):
         print(f"ERROR_FNFC_LIST: listing nodegroups for {cluster_name}: {e}")
     return nodegroups_details
 
-def fetch_karpenter_nodes_for_cluster(cluster_name, cluster_endpoint, cluster_ca, role_arn=None):
-    print(f"Fetching Karpenter/Auto-Mode nodes for {cluster_name}...")
+def fetch_karpenter_nodes_for_cluster(core_v1_api):
+    print(f"Fetching Karpenter/Auto-Mode nodes...")
     karpenter_nodes = []
-    ca_path = f"/tmp/{cluster_name}_ca.crt"
     try:
-        token = get_eks_token(cluster_name, role_arn)
-        headers = {'Authorization': f'Bearer {token}'}
-        with open(ca_path, "wb") as f: f.write(base64.b64decode(cluster_ca))
-        response = requests.get(f"{cluster_endpoint}/api/v1/nodes", headers=headers, verify=ca_path, timeout=30)
-        response.raise_for_status()
-        nodes = response.json().get('items', [])
+        nodes = core_v1_api.list_node().items
         for node in nodes:
-            labels = node['metadata'].get('labels', {})
+            labels = node.metadata.labels or {}
             if 'karpenter.sh/provisioner-name' in labels or labels.get('eks.amazonaws.com/compute-type') == 'ec2':
                 karpenter_nodes.append({
-                    "name": node['metadata']['name'], "status": "Ready" if any(c['status'] == 'True' for c in node.get('status',{}).get('conditions',[]) if c['type'] == 'Ready') else "NotReady",
-                    "desiredSize": 1, "instanceTypes": [labels.get('node.kubernetes.io/instance-type', 'unknown')], "amiType": "AUTO-MODE",
-                    "version": node.get('status',{}).get('nodeInfo',{}).get('kubeletVersion'), "releaseVersion": "N/A",
-                    "createdAt": datetime.fromisoformat(node['metadata']['creationTimestamp'].replace("Z", "+00:00")), "is_karpenter_node": True
+                    "name": node.metadata.name,
+                    "status": "Ready" if any(c.status == 'True' for c in node.status.conditions if c.type == 'Ready') else "NotReady",
+                    "desiredSize": 1, 
+                    "instanceTypes": [labels.get('node.kubernetes.io/instance-type', 'unknown')],
+                    "amiType": "AUTO-MODE",
+                    "version": node.status.node_info.kubelet_version,
+                    "releaseVersion": "N/A",
+                    "createdAt": node.metadata.creation_timestamp,
+                    "is_karpenter_node": True
                 })
-        print(f"Found {len(karpenter_nodes)} Karpenter/Auto-Mode nodes for {cluster_name}.")
+        print(f"Found {len(karpenter_nodes)} Karpenter/Auto-Mode nodes.")
     except Exception as e:
-        print(f"ERROR fetching Kubernetes API nodes for {cluster_name}: {e}")
-    finally:
-        if os.path.exists(ca_path): os.remove(ca_path)
+        print(f"ERROR fetching Kubernetes API nodes for Karpenter: {e}")
     return karpenter_nodes
 
-def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca, role_arn=None):
-    """Fetches detailed workload info and builds a rich data structure for interactive visualization."""
-    print(f"Fetching full Kubernetes object map for {cluster_name}...")
-    k8s_data = {"pods": [], "services": [], "ingresses": [], "nodes": [], "map_nodes": [], "map_edges": [], "error": None}
-    ca_path = f"/tmp/{cluster_name}_ca.crt"
-    try:
-        token = get_eks_token(cluster_name, role_arn)
-        headers = {'Authorization': f'Bearer {token}'}
-        with open(ca_path, "wb") as f: f.write(base64.b64decode(cluster_ca))
 
-        endpoints = {"pods": "/api/v1/pods", "services": "/api/v1/services", "ingresses": "/apis/networking.k8s.io/v1/ingresses", "nodes": "/api/v1/nodes"}
-        for key, endpoint in endpoints.items():
-            res = requests.get(f"{cluster_endpoint}{endpoint}", headers=headers, verify=ca_path, timeout=45); res.raise_for_status()
-            k8s_data[key] = res.json().get('items', [])
+# --- REFACTORED FUNCTION ---
+def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca, role_arn=None):
+    """
+    Fetches detailed workload info using the kubernetes-python client for reliability.
+    """
+    print(f"Fetching full Kubernetes object map for {cluster_name} using python client...")
+    k8s_data = {"pods": [], "services": [], "ingresses": [], "nodes": [], "deployments": [], "map_nodes": [], "map_edges": [], "error": None}
+    
+    try:
+        # Unified API client creation
+        api_client = get_k8s_api_client(cluster_name, cluster_endpoint, cluster_ca, role_arn)
+        core_v1 = client.CoreV1Api(api_client)
+        apps_v1 = client.AppsV1Api(api_client)
+        networking_v1 = client.NetworkingV1Api(api_client)
+        
+        # Fetch all resources
+        pod_list = core_v1.list_pod_for_all_namespaces(timeout_seconds=60)
+        svc_list = core_v1.list_service_for_all_namespaces(timeout_seconds=60)
+        ing_list = networking_v1.list_ingress_for_all_namespaces(timeout_seconds=60)
+        node_list = core_v1.list_node(timeout_seconds=30)
+        dep_list = apps_v1.list_deployment_for_all_namespaces(timeout_seconds=60)
+
+        # Convert to dictionary for consistent processing and JSON serialization
+        k8s_data["pods"] = [api_client.sanitize_for_serialization(p) for p in pod_list.items]
+        k8s_data["services"] = [api_client.sanitize_for_serialization(s) for s in svc_list.items]
+        k8s_data["ingresses"] = [api_client.sanitize_for_serialization(i) for i in ing_list.items]
+        k8s_data["nodes"] = [api_client.sanitize_for_serialization(n) for n in node_list.items]
+        k8s_data["deployments"] = [api_client.sanitize_for_serialization(d) for d in dep_list.items]
 
         map_nodes, map_edges = [], []
         now = datetime.now(timezone.utc)
         
         # Process Ingresses
         for ing in k8s_data["ingresses"]:
-            details = {
-                "kind": "Ingress", "name": ing["metadata"]["name"], "namespace": ing["metadata"]["namespace"],
-                "class": ing["spec"].get("ingressClassName", "N/A"),
-                "hosts": [rule.get("host") for rule in ing.get("spec", {}).get("rules", [])],
-                "created": ing['metadata']['creationTimestamp']
-            }
-            map_nodes.append({
-                "id": ing["metadata"]["uid"], "label": ing["metadata"]["name"], "group": "ingress",
-                "title": f"Ingress: {details['name']}<br>Namespace: {details['namespace']}",
-                "details": details
-            })
+            details = { "kind": "Ingress", "name": ing["metadata"]["name"], "namespace": ing["metadata"]["namespace"], "class": ing["spec"].get("ingressClassName", "N/A"), "hosts": [rule.get("host") for rule in ing.get("spec", {}).get("rules", [])], "created": ing['metadata']['creationTimestamp']}
+            map_nodes.append({"id": ing["metadata"]["uid"], "label": ing["metadata"]["name"], "group": "ingress", "title": f"Ingress: {details['name']}<br>Namespace: {details['namespace']}", "details": details})
             for rule in ing.get("spec", {}).get("rules", []):
                 for path in rule.get("http", {}).get("paths", []):
                     svc_name = path["backend"]["service"]["name"]
@@ -348,45 +406,23 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
         
         # Process Services
         for svc in k8s_data["services"]:
-            details = {
-                "kind": "Service", "name": svc["metadata"]["name"], "namespace": svc["metadata"]["namespace"],
-                "type": svc["spec"]["type"], "cluster_ip": svc["spec"].get("clusterIP", "N/A"),
-                "ports": [f"{p.get('name', '')} {p['port']}:{p['targetPort']}/{p['protocol']}" for p in svc["spec"].get("ports", [])],
-                "selector": svc["spec"].get("selector"), "created": svc['metadata']['creationTimestamp']
-            }
-            map_nodes.append({
-                "id": svc["metadata"]["uid"], "label": svc["metadata"]["name"], "group": "svc",
-                "title": f"Service: {details['name']}<br>Type: {details['type']}",
-                "details": details
-            })
+            details = {"kind": "Service", "name": svc["metadata"]["name"], "namespace": svc["metadata"]["namespace"], "type": svc["spec"]["type"], "cluster_ip": svc["spec"].get("clusterIP", "N/A"), "ports": [f"{p.get('name', '')} {p['port']}:{p['targetPort']}/{p['protocol']}" for p in svc["spec"].get("ports", [])], "selector": svc["spec"].get("selector"), "created": svc['metadata']['creationTimestamp']}
+            map_nodes.append({"id": svc["metadata"]["uid"], "label": svc["metadata"]["name"], "group": "svc", "title": f"Service: {details['name']}<br>Type: {details['type']}", "details": details})
 
         # Process Pods
         for pod in k8s_data["pods"]:
-            age_delta = now - datetime.fromisoformat(pod['metadata']['creationTimestamp'].replace("Z", "+00:00"))
+            creation_time = datetime.fromisoformat(pod['metadata']['creationTimestamp'].replace("Z", "+00:00"))
+            age_delta = now - creation_time
             pod['age'] = str(age_delta).split('.')[0]
             pod['restarts'] = sum(cs.get('restartCount', 0) for cs in pod.get('status', {}).get('containerStatuses', []))
-            
             owner_ref = pod['metadata'].get('ownerReferences', [{}])[0]
             controlled_by = f"{owner_ref.get('kind', 'N/A')}/{owner_ref.get('name', 'N/A')}"
-            
-            details = {
-                "kind": "Pod", "name": pod["metadata"]["name"], "namespace": pod["metadata"]["namespace"],
-                "status": pod["status"]["phase"], "pod_ip": pod["status"].get("podIP", "N/A"),
-                "node_name": pod["spec"].get("nodeName", "N/A"), "restarts": pod['restarts'], "age": pod['age'],
-                "controlled_by": controlled_by, "created": pod['metadata']['creationTimestamp']
-            }
-            map_nodes.append({
-                "id": pod["metadata"]["uid"], "label": pod["metadata"]["name"], "group": "pod",
-                "title": f"Pod: {details['name']}<br>Status: {details['status']}",
-                "details": details
-            })
-            # Edge: Pod -> Node
+            details = {"kind": "Pod", "name": pod["metadata"]["name"], "namespace": pod["metadata"]["namespace"], "status": pod["status"]["phase"], "pod_ip": pod["status"].get("podIP", "N/A"), "node_name": pod["spec"].get("nodeName", "N/A"), "restarts": pod['restarts'], "age": pod['age'], "controlled_by": controlled_by, "created": pod['metadata']['creationTimestamp']}
+            map_nodes.append({"id": pod["metadata"]["uid"], "label": pod["metadata"]["name"], "group": "pod", "title": f"Pod: {details['name']}<br>Status: {details['status']}", "details": details})
             if pod["spec"].get("nodeName"):
                 for n in k8s_data["nodes"]:
                     if n["metadata"]["name"] == pod["spec"]["nodeName"]:
                         map_edges.append({"from": pod["metadata"]["uid"], "to": n["metadata"]["uid"]}); break
-            
-            # Edge: Service -> Pod
             pod_labels = pod["metadata"].get("labels", {})
             if pod_labels:
                 for svc in k8s_data["services"]:
@@ -396,28 +432,17 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
 
         # Process Nodes
         for n in k8s_data["nodes"]:
-            details = {
-                "kind": "Node", "name": n["metadata"]["name"],
-                "instance_type": n['metadata']['labels'].get('node.kubernetes.io/instance-type', 'N/A'),
-                "os_image": n["status"]["nodeInfo"].get("osImage", "N/A"),
-                "kernel_version": n["status"]["nodeInfo"].get("kernelVersion", "N/A"),
-                "kubelet_version": n["status"]["nodeInfo"].get("kubeletVersion", "N/A"),
-                "allocatable_cpu": n["status"].get("allocatable", {}).get("cpu", "N/A"),
-                "allocatable_memory": n["status"].get("allocatable", {}).get("memory", "N/A"),
-                "conditions": [{c['type']: c['status']} for c in n.get('status', {}).get('conditions', [])],
-                "created": n['metadata']['creationTimestamp']
-            }
-            map_nodes.append({
-                "id": n["metadata"]["uid"], "label": n["metadata"]["name"], "group": "node",
-                "title": f"Node: {details['name']}<br>Type: {details['instance_type']}",
-                "details": details
-            })
+            details = {"kind": "Node", "name": n["metadata"]["name"], "instance_type": n['metadata']['labels'].get('node.kubernetes.io/instance-type', 'N/A'), "os_image": n["status"]["nodeInfo"].get("osImage", "N/A"), "kernel_version": n["status"]["nodeInfo"].get("kernelVersion", "N/A"), "kubelet_version": n["status"]["nodeInfo"].get("kubeletVersion", "N/A"), "allocatable_cpu": n["status"].get("allocatable", {}).get("cpu", "N/A"), "allocatable_memory": n["status"].get("allocatable", {}).get("memory", "N/A"), "conditions": [{c['type']: c['status']} for c in n.get('status', {}).get('conditions', [])], "created": n['metadata']['creationTimestamp']}
+            map_nodes.append({"id": n["metadata"]["uid"], "label": n["metadata"]["name"], "group": "node", "title": f"Node: {details['name']}<br>Type: {details['instance_type']}", "details": details})
 
         k8s_data["map_nodes"], k8s_data["map_edges"] = map_nodes, map_edges
+    except ApiException as e:
+        k8s_data['error'] = f"Kubernetes API Error: {e.reason} (Status: {e.status})"
+        print(f"ERROR fetching k8s map for {cluster_name}: {e.body}")
     except Exception as e:
-        k8s_data['error'] = str(e)
-    finally:
-        if os.path.exists(ca_path): os.remove(ca_path)
+        k8s_data['error'] = f"An unexpected error occurred connecting to Kubernetes: {str(e)}"
+        print(f"UNEXPECTED ERROR fetching k8s map for {cluster_name}: {e}")
+    
     return k8s_data
 
 def fetch_addons_for_cluster(eks_client, cluster_name):
@@ -458,6 +483,26 @@ def upgrade_nodegroup_version(account_id, region, cluster_name, nodegroup_name, 
     except ClientError as e:
         return {"error": e.response['Error']['Message']}
 
+def find_log_anomalies(message: str) -> bool:
+    """Uses regex to find common error patterns in log messages."""
+    # Case-insensitive patterns
+    patterns = [
+        re.compile(r"CrashLoopBackOff", re.IGNORECASE),
+        re.compile(r"FailedScheduling", re.IGNORECASE),
+        re.compile(r"ImagePullBackOff", re.IGNORECASE),
+        re.compile(r"ErrImagePull", re.IGNORECASE),
+        re.compile(r"NodeHasSufficientMemory", re.IGNORECASE),
+        re.compile(r"failed calling webhook", re.IGNORECASE),
+        re.compile(r"forbidden", re.IGNORECASE),
+        re.compile(r"authentication failed", re.IGNORECASE),
+        # Broader patterns for common log levels in different formats
+        re.compile(r"level=(error|warn|warning|fatal)", re.IGNORECASE),
+        re.compile(r"\"level\":\"(error|warn|warning|fatal)\"", re.IGNORECASE),
+        # General error keyword
+        re.compile(r"\berror\b", re.IGNORECASE)
+    ]
+    return any(p.search(message) for p in patterns)
+
 def stream_cloudwatch_logs(account_id, region, log_group_name, log_type_from_ui, role_arn=None):
     log_stream_prefix_map = {'api': 'kube-apiserver-', 'audit': 'kube-apiserver-audit-', 'authenticator': 'authenticator-', 'controllerManager': 'kube-controller-manager-', 'scheduler': 'kube-scheduler-'}
     log_type_prefix = log_stream_prefix_map.get(log_type_from_ui)
@@ -477,6 +522,9 @@ def stream_cloudwatch_logs(account_id, region, log_group_name, log_type_from_ui,
         for page in logs_client.get_paginator('filter_log_events').paginate(logGroupName=log_group_name, logStreamNames=[latest_stream['logStreamName']], startTime=start_time, interleaved=True):
             for event in page['events']:
                 event_count += 1
+                # Check for anomalies
+                if find_log_anomalies(event.get('message', '')):
+                    event['anomaly'] = True
                 yield f"data: {json.dumps(event)}\n\n"
             time.sleep(1)
         if event_count == 0: yield f"data: {json.dumps({'message': 'No new log events in last 10 minutes.'})}\n\n"
@@ -529,26 +577,35 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
         cluster_name = c_raw["name"]
         cluster_data['cost_30d'] = get_cost_for_clusters(session, [cluster_name]).get(cluster_name, "N/A")
         managed_nodegroups_raw = fetch_managed_nodegroups(eks_client, cluster_name)
-        karpenter_nodes_raw, cluster_data["workloads"], cluster_data['deployments'], cluster_data['pods'], cluster_data['analysis'] = [], {"error": "Missing endpoint or CA data."}, [], [], {"error": "Missing endpoint or CA data."}
+        karpenter_nodes_raw = []
+        cluster_data["workloads"] = {"error": "Missing endpoint or CA data."}
+        cluster_data['analysis'] = {"error": "Missing endpoint or CA data."}
         
         # All Kubernetes API calls happen here
         if c_raw.get("endpoint") and c_raw.get("certificateAuthority", {}).get("data"):
             endpoint, ca_data = c_raw["endpoint"], c_raw["certificateAuthority"]["data"]
-            karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(cluster_name, endpoint, ca_data, role_arn)
             cluster_data["workloads"] = get_kubernetes_workloads_and_map(cluster_name, endpoint, ca_data, role_arn)
+            
+            # Perform analysis if workload fetching was successful
+            if not cluster_data["workloads"].get("error"):
+                try:
+                    # We can re-use the python-client for analysis
+                    api_client = get_k8s_api_client(cluster_name, endpoint, ca_data, role_arn)
+                    core_v1 = client.CoreV1Api(api_client)
+                    apps_v1 = client.AppsV1Api(api_client)
+                    custom_objects_api = client.CustomObjectsApi(api_client)
+                    
+                    pod_metrics = get_pod_metrics(custom_objects_api)
+                    cluster_data['analysis'] = {"error": pod_metrics["error"]} if "error" in pod_metrics else analyze_workloads(core_v1, apps_v1, pod_metrics)
+                    
+                    # Fetch karpenter nodes using the same client
+                    karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(core_v1)
+                except Exception as e:
+                    print(f"Failed to perform agentless analysis for {cluster_name}: {e}")
+                    cluster_data['analysis'] = {"error": f"Failed during K8s client interaction for analysis: {e}"}
+            else:
+                cluster_data['analysis'] = {"error": "Skipped due to workload fetch failure."}
 
-            # Integrate agentless analysis
-            try:
-                api_client = get_k8s_api_client(cluster_name, endpoint, ca_data, role_arn)
-                core_v1, apps_v1, custom_objects_api = client.CoreV1Api(api_client), client.AppsV1Api(api_client), client.CustomObjectsApi(api_client)
-                cluster_data['deployments'] = apps_v1.list_deployment_for_all_namespaces().items
-                cluster_data['pods'] = core_v1.list_pod_for_all_namespaces().items
-                pod_metrics = get_pod_metrics(custom_objects_api)
-                cluster_data['analysis'] = {"error": pod_metrics["error"]} if "error" in pod_metrics else analyze_workloads(core_v1, apps_v1, pod_metrics)
-            except Exception as e:
-                print(f"Failed to perform agentless analysis for {cluster_name}: {e}")
-                cluster_data['analysis'] = {"error": f"Failed during K8s client interaction: {e}"}
-        
         processed_nodegroups = [{"name": ng.get("nodegroupName"), "status": ng.get("status"), "amiType": ng.get("amiType"), "instanceTypes": ng.get("instanceTypes", []), "releaseVersion": ng.get("releaseVersion"), "version": ng.get("version"), "createdAt": ng.get("createdAt"), "desiredSize": ng.get("scalingConfig", {}).get("desiredSize"), "is_karpenter_node": False} for ng in managed_nodegroups_raw]
         processed_nodegroups.extend(karpenter_nodes_raw)
 
@@ -606,8 +663,11 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
     for c in processed_clusters: c['createdAt'] = c['createdAt'].isoformat() if isinstance(c.get('createdAt'), datetime) else c.get('createdAt')
     return {"clusters": processed_clusters, "errors": errors, "quick_info": {"total_clusters": len(processed_clusters), "total_cost_30d": f"${total_cost:,.2f}", "clusters_with_health_issues": sum(1 for c in processed_clusters if c["health_issues"]), "clusters_with_upgrade_insights_attention": sum(1 for c in processed_clusters if c["upgrade_insight_status"] == "NEEDS_ATTENTION"), "clusters_nearing_eol_90_days": sum(1 for c in processed_clusters if c["is_nearing_eol_90_days"]), "accounts_running_kubernetes_clusters": len({c["account_id"] for c in processed_clusters}), "regions_running_kubernetes_clusters": len({c["region"] for c in processed_clusters})}}
 
-def get_single_cluster_details(account_id, region, cluster_name, role_arn=None):
-    """Fetches comprehensive details for a single EKS cluster."""
+def get_single_cluster_details(account_id, region, cluster_name, role_arn=None, use_cache=True):
+    """
+    Fetches comprehensive details for a single EKS cluster.
+    `use_cache` is a new parameter to bypass caching, used for snapshots.
+    """
     session = get_session(role_arn)
     if not session: return {"errors": [f"Failed to get session for account {account_id}."]}
     try:
