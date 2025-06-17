@@ -1,3 +1,4 @@
+
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 from datetime import datetime, timezone, timedelta
@@ -94,13 +95,16 @@ def parse_quantity(s: str):
     """Parses Kubernetes quantities (e.g., '500m', '1024Ki') into a common base unit."""
     if not s: return 0
     s = s.lower()
-    if s.endswith('m'): return int(s[:-1]) # CPU millicores
-    if s.endswith('ki'): return int(s[:-2]) * 1024 # Memory kibibytes
+    # Kubernetes uses 'm' for millicores, which are 1/1000 of a core. We will return them as a simple int.
+    if s.endswith('m'): return int(s[:-1])
+    # Memory: 'Ki' = kibibyte, 'Mi' = mebibyte. We return everything in bytes.
+    if s.endswith('ki'): return int(s[:-2]) * 1024
     if s.endswith('mi'): return int(s[:-2]) * 1024**2
     if s.endswith('gi'): return int(s[:-2]) * 1024**3
     if s.endswith('ti'): return int(s[:-2]) * 1024**4
-    if s.isdigit(): return int(s) # Plain CPU cores
+    if s.isdigit(): return int(s) * 1000 # Assume plain number is CPU cores, convert to millicores for consistency with 'm'.
     return 0
+
 
 # REMOVED get_eks_token as it's no longer needed
 
@@ -110,6 +114,7 @@ def get_pod_metrics(custom_objects_api):
     try:
         metrics = custom_objects_api.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "pods")
         # Sum usage across all containers in a pod
+        # CPU is parsed into millicores, memory is parsed into bytes.
         return {f"{m['metadata']['namespace']}/{m['metadata']['name']}": {
             'cpu': sum(parse_quantity(c['usage'].get('cpu', '0m')) for c in m['containers']),
             'memory': sum(parse_quantity(c['usage'].get('memory', '0Ki')) for c in m['containers'])
@@ -547,15 +552,97 @@ def stream_cloudwatch_logs(account_id, region, log_group_name, log_type_from_ui,
 
 def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
     session = get_session(role_arn)
-    if not session: return {"error": f"Failed to get session for account {account_id}."}
+    if not session:
+        return {"error": f"Failed to get session for account {account_id}."}
+    
     cw_client = session.client('cloudwatch', region_name=region)
-    metric_defs = {'requests': ('apiserver_request_total','Sum'), 'requests_4xx': ('apiserver_request_total_4XX','Sum'), 'requests_5xx': ('apiserver_request_total_5XX','Sum'), 'requests_429': ('apiserver_request_total_429','Sum'), 'storage_size': ('apiserver_storage_size_bytes','Average'), 'scheduler_attempts_scheduled': ('scheduler_schedule_attempts_SCHEDULED','Sum'), 'scheduler_attempts_unschedulable': ('scheduler_schedule_attempts_UNSCHEDULABLE','Sum'), 'scheduler_attempts_error': ('scheduler_schedule_attempts_ERROR','Sum'), 'pending_pods_gated': ('scheduler_pending_pods_GATED','Average'), 'pending_pods_unschedulable': ('scheduler_pending_pods_UNSCHEDULABLE','Average'), 'pending_pods_activeq': ('scheduler_pending_pods_ACTIVEQ','Average'), 'pending_pods_backoff': ('scheduler_pending_pods_BACKOFF','Average'), 'latency_get': ('apiserver_request_duration_seconds_GET_P99','Average'), 'latency_post': ('apiserver_request_duration_seconds_POST_P99','Average'), 'latency_put': ('apiserver_request_duration_seconds_PUT_P99','Average'), 'latency_delete': ('apiserver_request_duration_seconds_DELETE_P99','Average'), 'inflight_mutating': ('apiserver_current_inflight_requests_MUTATING','Average'), 'inflight_readonly': ('apiserver_current_inflight_requests_READONLY','Average')}
-    queries = [{'Id': f'm{i}', 'Label': k, 'MetricStat': {'Metric': {'Namespace': 'ContainerInsights', 'MetricName': v[0], 'Dimensions': [{'Name': 'ClusterName', 'Value': cluster_name}]}, 'Period': 300, 'Stat': v[1]}, 'ReturnData': True} for i, (k, v) in enumerate(metric_defs.items())]
+    ns = 'ContainerInsights'
+    dims = [{'Name': 'ClusterName', 'Value': cluster_name}]
+    period = 300  # 5 minutes
+    
+    # Define all the metrics we want to fetch, organized by type
+    metric_definitions = {
+        # Cluster Health
+        "node_status_ready": ('node_status_ready', 'Average'),
+        "container_restarts": ('pod_number_of_container_restarts', 'Sum'),
+        
+        # Node Performance
+        "node_cpu_utilization": ('node_cpu_utilization', 'Average'),
+        "node_memory_utilization": ('node_memory_utilization', 'Average'),
+        "node_network_rx_bytes": ('node_network_rx_bytes', 'Average'),
+        "node_network_tx_bytes": ('node_network_tx_bytes', 'Average'),
+        "node_filesystem_utilization": ('node_filesystem_utilization', 'Average'),
+        "node_cpu_reserved_capacity": ('node_cpu_reserved_capacity', 'Average'),
+        "node_memory_reserved_capacity": ('node_memory_reserved_capacity', 'Average'),
+
+        # Pod Performance
+        "pod_cpu_utilization": ('pod_cpu_utilization', 'Average'),
+        "pod_memory_utilization": ('pod_memory_utilization', 'Average'),
+        "pod_network_rx_bytes": ('pod_network_rx_bytes', 'Average'),
+        "pod_network_tx_bytes": ('pod_network_tx_bytes', 'Average'),
+
+        # Pod Status Counts
+        "pod_status_running": ('pod_status_running', 'Average'),
+        "pod_status_pending": ('pod_status_pending', 'Average'),
+        "pod_status_succeeded": ('pod_status_succeeded', 'Average'),
+        "pod_status_failed": ('pod_status_failed', 'Average'),
+        "pod_status_unknown": ('pod_status_unknown', 'Average'),
+
+        # Control Plane API Server
+        "apiserver_request_total": ('apiserver_request_total', 'Sum'),
+        "apiserver_request_latency_get": ('apiserver_request_latencies_GET', 'Average'),
+        "apiserver_request_latency_list": ('apiserver_request_latencies_LIST', 'Average'),
+        "apiserver_request_latency_post": ('apiserver_request_latencies_POST', 'Average'),
+        "apiserver_request_latency_put": ('apiserver_request_latencies_PUT', 'Average'),
+        "apiserver_request_latency_delete": ('apiserver_request_latencies_DELETE', 'Average'),
+        "apiserver_storage_objects": ('apiserver_storage_objects', 'Average'),
+        "apiserver_inflight_requests_mutating": ('apiserver_in_flight_requests_mutating', 'Average'),
+        "apiserver_inflight_requests_readonly": ('apiserver_in_flight_requests_read_only', 'Average'),
+        "apiserver_request_total_5xx": ('apiserver_request_total_5XX', 'Sum'),
+        "apiserver_request_total_4xx": ('apiserver_request_total_4XX', 'Sum'),
+
+        # Control Plane Scheduler
+        "scheduler_pending_pods": ('scheduler_pending_pods', 'Average'),
+        "scheduler_schedule_attempts_success": ('scheduler_schedule_attempts_SCHEDULED', 'Sum'),
+        "scheduler_schedule_attempts_failure": ('scheduler_schedule_attempts_UNSCHEDULABLE', 'Sum'),
+        "scheduler_schedule_attempts_error": ('scheduler_schedule_attempts_ERROR', 'Sum'),
+    }
+
+    queries = []
+    for i, (key, (metric_name, stat)) in enumerate(metric_definitions.items()):
+        queries.append({
+            'Id': f'm{i}',
+            'Label': key,
+            'MetricStat': {
+                'Metric': {
+                    'Namespace': ns,
+                    'MetricName': metric_name,
+                    'Dimensions': dims
+                },
+                'Period': period,
+                'Stat': stat
+            },
+            'ReturnData': True
+        })
+    
     try:
-        resp = cw_client.get_metric_data(MetricDataQueries=queries, StartTime=datetime.now(timezone.utc) - timedelta(hours=3), EndTime=datetime.now(timezone.utc), ScanBy='TimestampDescending')
-        return {res['Label']: {'timestamps': [ts.isoformat() for ts in res['Timestamps']], 'values': res['Values']} for res in resp['MetricDataResults']}
-    except ClientError as e: return {'error': f"Could not fetch metrics. Ensure Container Insights is enabled. Error: {e.response['Error']['Message']}"}
-    except Exception as e: return {'error': f'Unexpected error fetching metrics: {e}'}
+        response = cw_client.get_metric_data(
+            MetricDataQueries=queries,
+            StartTime=datetime.now(timezone.utc) - timedelta(hours=6),
+            EndTime=datetime.now(timezone.utc),
+            ScanBy='TimestampDescending'
+        )
+        return {
+            res['Label']: {
+                'timestamps': [ts.isoformat() for ts in res['Timestamps']],
+                'values': res['Values']
+            } for res in response['MetricDataResults']
+        }
+    except ClientError as e:
+        return {'error': f"Could not fetch metrics. Ensure Container Insights is enabled. Error: {e.response['Error']['Message']}"}
+    except Exception as e:
+        return {'error': f'An unexpected error occurred fetching metrics: {str(e)}'}
+
 
 # --- Security Insights ---
 def get_security_insights(cluster_raw, eks_client):
@@ -610,6 +697,9 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
                     custom_objects_api = client.CustomObjectsApi(api_client)
                     
                     pod_metrics = get_pod_metrics(custom_objects_api)
+                    # Pass pod_metrics to the frontend for display
+                    cluster_data['pod_metrics'] = {} if "error" in pod_metrics else pod_metrics
+
                     cluster_data['analysis'] = {"error": pod_metrics["error"]} if "error" in pod_metrics else analyze_workloads(core_v1, apps_v1, pod_metrics)
                     
                     # Fetch karpenter nodes using the same client
