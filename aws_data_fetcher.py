@@ -1,5 +1,3 @@
-# --- START OF FILE aws_data_fetcher.py ---
-
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 from datetime import datetime, timezone, timedelta
@@ -278,25 +276,41 @@ def get_instance_type_pricing(region: str):
     """
     Returns a representative, hardcoded map of on-demand instance prices per hour.
     This is a simplified proof-of-concept. A real implementation would use the Price List API.
+    Prices are for Linux, On-Demand, in USD per hour. Last checked mid-2024.
     """
-    # Prices are for Linux, On-Demand, in USD per hour. Last checked early 2024.
     pricing = {
-        'us-east-1': {
-            't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664,
-            'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384,
-            'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'm6i.2xlarge': 0.384,
-            'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34,
-            'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504,
+        'us-east-1': { # N. Virginia
+            't2.medium': 0.0464, 't2.large': 0.0928, 't2.xlarge': 0.1856, 't2.2xlarge': 0.3712,
+            't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664, 't3.2xlarge': 0.3328,
+            't4g.medium': 0.0336, 't4g.large': 0.0672, 't4g.xlarge': 0.1344, 't4g.2xlarge': 0.2688,
+            'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384, 'm5.4xlarge': 0.768,
+            'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'm6i.2xlarge': 0.384, 'm6i.4xlarge': 0.768,
+            'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34, 'c5.4xlarge': 0.68,
+            'c6i.large': 0.085, 'c6i.xlarge': 0.17, 'c6i.2xlarge': 0.34, 'c6i.4xlarge': 0.68,
+            'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504, 'r5.4xlarge': 1.008,
+            'r6i.large': 0.126, 'r6i.xlarge': 0.252, 'r6i.2xlarge': 0.504, 'r6i.4xlarge': 1.008,
         },
-        'us-west-2': {
-            't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664,
-            'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384,
-            'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'm6i.2xlarge': 0.384,
-            'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34,
-            'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504,
+        'us-west-2': { # Oregon
+            't2.medium': 0.0464, 't2.large': 0.0928, 't2.xlarge': 0.1856, 't2.2xlarge': 0.3712,
+            't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664, 't3.2xlarge': 0.3328,
+            't4g.medium': 0.0336, 't4g.large': 0.0672, 't4g.xlarge': 0.1344, 't4g.2xlarge': 0.2688,
+            'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384, 'm5.4xlarge': 0.768,
+            'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'm6i.2xlarge': 0.384, 'm6i.4xlarge': 0.768,
+            'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34, 'c5.4xlarge': 0.68,
+            'c6i.large': 0.085, 'c6i.xlarge': 0.17, 'c6i.2xlarge': 0.34, 'c6i.4xlarge': 0.68,
+            'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504, 'r5.4xlarge': 1.008,
+            'r6i.large': 0.126, 'r6i.xlarge': 0.252, 'r6i.2xlarge': 0.504, 'r6i.4xlarge': 1.008,
+        },
+        'eu-west-1': { # Ireland
+            't2.medium': 0.052, 't2.large': 0.104, 't2.xlarge': 0.208, 't2.2xlarge': 0.416,
+            't3.medium': 0.0464, 't3.large': 0.0928, 't3.xlarge': 0.1856, 't3.2xlarge': 0.3712,
+            'm6i.large': 0.106, 'm6i.xlarge': 0.212, 'm6i.2xlarge': 0.424, 'm6i.4xlarge': 0.848,
+            'c6i.large': 0.094, 'c6i.xlarge': 0.188, 'c6i.2xlarge': 0.376, 'c6i.4xlarge': 0.752,
+            'r6i.large': 0.139, 'r6i.xlarge': 0.278, 'r6i.2xlarge': 0.556, 'r6i.4xlarge': 1.112,
         }
     }
-    return pricing.get(region, pricing['us-east-1']) # Default to us-east-1 if region not found
+    # Return pricing for the specified region, or default to us-east-1 if not found.
+    return pricing.get(region, pricing.get('us-east-1', {}))
 
 def calculate_what_if_cost(region, current_instance_type, target_instance_type, instance_count):
     """Calculates the estimated monthly savings for an instance type change."""

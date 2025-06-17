@@ -1,5 +1,3 @@
-# --- START OF FILE app.py ---
-
 from fastapi import FastAPI, Request, Form, Depends, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
