@@ -1,4 +1,3 @@
-
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 from datetime import datetime, timezone, timedelta
@@ -9,16 +8,15 @@ from collections import Counter
 import time
 import base64
 import requests
-import subprocess
+
 from functools import lru_cache
-import re
+
 
 # --- New Kubernetes & Analysis Imports ---
 from kubernetes import client, config
 from kubernetes.config.kube_config import KubeConfigLoader
 from kubernetes.client.rest import ApiException
-import numpy as np
-from scipy import stats
+
 
 # --- EKS Data ---
 EKS_EOL_DATES = {
@@ -91,144 +89,9 @@ def get_k8s_api_client(cluster_name, cluster_endpoint, cluster_ca_data, role_arn
     loader.load_and_set(cfg)
     return client.ApiClient(configuration=cfg)
 
-def parse_quantity(s: str):
-    """Parses Kubernetes quantities (e.g., '500m', '1024Ki') into a common base unit."""
-    if not s: return 0
-    s = s.lower()
-    # Kubernetes uses 'm' for millicores, which are 1/1000 of a core. We will return them as a simple int.
-    if s.endswith('m'): return int(s[:-1])
-    # Memory: 'Ki' = kibibyte, 'Mi' = mebibyte. We return everything in bytes.
-    if s.endswith('ki'): return int(s[:-2]) * 1024
-    if s.endswith('mi'): return int(s[:-2]) * 1024**2
-    if s.endswith('gi'): return int(s[:-2]) * 1024**3
-    if s.endswith('ti'): return int(s[:-2]) * 1024**4
-    if s.isdigit(): return int(s) * 1000 # Assume plain number is CPU cores, convert to millicores for consistency with 'm'.
-    return 0
 
 
-# REMOVED get_eks_token as it's no longer needed
 
-# --- Agentless Feature Logic ---
-def get_pod_metrics(custom_objects_api):
-    """Fetches pod metrics from the Kubernetes Metrics Server."""
-    try:
-        metrics = custom_objects_api.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "pods")
-        # Sum usage across all containers in a pod
-        # CPU is parsed into millicores, memory is parsed into bytes.
-        return {f"{m['metadata']['namespace']}/{m['metadata']['name']}": {
-            'cpu': sum(parse_quantity(c['usage'].get('cpu', '0m')) for c in m['containers']),
-            'memory': sum(parse_quantity(c['usage'].get('memory', '0Ki')) for c in m['containers'])
-        } for m in metrics['items']}
-    except ApiException as e:
-        if e.status == 404:
-            print("ERROR: Metrics API (metrics.k8s.io) not found. Is the Metrics Server installed?")
-            return {"error": "Metrics Server not found in cluster."}
-        print(f"Error fetching pod metrics: {e}")
-        return {"error": f"API Error fetching metrics: {e.reason}"}
-    except Exception as e:
-        print(f"Unexpected error fetching pod metrics: {e}")
-        return {"error": f"An unexpected error occurred while fetching metrics: {str(e)}"}
-
-
-def analyze_workloads(core_v1, apps_v1, pod_metrics):
-    """Performs anomaly detection and rightsizing analysis."""
-    anomalies, rightsizing = [], []
-    try:
-        all_pods = core_v1.list_pod_for_all_namespaces(timeout_seconds=60).items
-        deployments = apps_v1.list_deployment_for_all_namespaces(timeout_seconds=60).items
-    except ApiException as e:
-        return {"error": f"Failed to list workloads: {e.reason}", "anomalies": [], "rightsizing": []}
-
-    for dep in deployments:
-        dep_name, ns = dep.metadata.name, dep.metadata.namespace
-        selector = dep.spec.selector.match_labels
-        if not selector: continue
-
-        dep_pods = [p for p in all_pods if p.metadata.namespace == ns and p.metadata.labels and selector.items() <= p.metadata.labels.items()]
-        if len(dep_pods) < 3: continue
-
-        restart_counts = [sum(cs.restart_count for cs in (p.status.container_statuses or [])) for p in dep_pods]
-
-        if np.std(restart_counts) > 0 and len(restart_counts) > 1:
-            zscores = np.abs(stats.zscore(restart_counts))
-            for i, pod in enumerate(dep_pods):
-                if zscores[i] > 2.5: # Z-score > 2.5 is a strong outlier
-                    anomalies.append({
-                        "type": "Excessive Restarts", "severity": "High",
-                        "pod": pod.metadata.name, "namespace": ns,
-                        "details": f"Pod has {restart_counts[i]} restarts, while the average for this deployment is {np.mean(restart_counts):.1f}."
-                    })
-
-        if pod_metrics and "error" not in pod_metrics:
-            cpu_usages = [pod_metrics.get(f"{p.metadata.namespace}/{p.metadata.name}", {}).get('cpu', 0) for p in dep_pods]
-            
-            main_container = dep.spec.template.spec.containers[0] if dep.spec.template.spec.containers else None
-            if not main_container or not main_container.resources or not main_container.resources.requests:
-                continue
-
-            req_cpu_str = main_container.resources.requests.get('cpu', '0m')
-            pod_requests_cpu = parse_quantity(req_cpu_str)
-
-            if pod_requests_cpu > 100: # Only analyze if CPU request is significant (e.g., > 100m)
-                p95_cpu = np.percentile([c for c in cpu_usages if c > 0], 95) if any(c > 0 for c in cpu_usages) else 0
-                if p95_cpu < pod_requests_cpu * 0.4: # If usage is less than 40% of request
-                     rightsizing.append({
-                         "workload": dep_name, "namespace": ns, "kind": "Deployment", "metric": "CPU",
-                         "current_request": f"{req_cpu_str}",
-                         "recommended_request": f"{int(p95_cpu * 1.2)}m", # Recommend P95 + 20% buffer
-                     })
-
-    return {"anomalies": anomalies, "rightsizing": rightsizing, "error": None}
-
-# --- Cost Optimization Insights ---
-def get_cost_optimization_insights(session, region, cluster_name):
-    """Finds potential cost savings for a given cluster."""
-    print(f"Searching for cost optimizations for {cluster_name}...")
-    insights = []
-    ec2 = session.client('ec2', region_name=region)
-    elbv2 = session.client('elbv2', region_name=region)
-    cluster_tag_filter = {'Name': f'tag:kubernetes.io/cluster/{cluster_name}', 'Values': ['owned']}
-
-    # Check for unattached EBS volumes
-    try:
-        volumes = ec2.describe_volumes(Filters=[{'Name': 'status', 'Values': ['available']}, cluster_tag_filter])
-        for vol in volumes.get('Volumes', []):
-            insights.append({
-                "title": "Unattached EBS Volume", "severity": "Medium",
-                "description": f"Volume {vol['VolumeId']} ({vol['Size']} GiB, Type: {vol['VolumeType']}) is 'available' and not attached to any instance, but is still incurring costs.",
-                "recommendation": "Verify the volume is no longer needed and delete it. If needed, consider snapshotting before deletion.", "resource_id": vol['VolumeId']
-            })
-    except ClientError as e:
-        print(f"Warning: Could not check for unattached EBS volumes. Permission might be missing. {e}")
-
-    # Check for idle Load Balancers
-    try:
-        paginator = elbv2.get_paginator('describe_load_balancers')
-        for page in paginator.paginate():
-            lb_arns = [lb['LoadBalancerArn'] for lb in page.get('LoadBalancers', [])]
-            if not lb_arns: continue
-            tags_response = elbv2.describe_tags(ResourceArns=lb_arns)
-            for tag_desc in tags_response.get('TagDescriptions', []):
-                if any(t['Key'] == f'kubernetes.io/cluster/{cluster_name}' and t['Value'] == 'owned' for t in tag_desc.get('Tags', [])):
-                    lb_arn = tag_desc['ResourceArn']
-                    lb_name = lb_arn.split('/')[-2]
-                    tg_paginator = elbv2.get_paginator('describe_target_groups')
-                    is_idle = True
-                    for tg_page in tg_paginator.paginate(LoadBalancerArn=lb_arn):
-                        for tg in tg_page.get('TargetGroups', []):
-                            health = elbv2.describe_target_health(TargetGroupArn=tg['TargetGroupArn'])
-                            if any(t.get('TargetHealth', {}).get('State') == 'healthy' for t in health.get('TargetHealthDescriptions',[])):
-                                is_idle = False; break
-                        if not is_idle: break
-                    if is_idle:
-                        insights.append({
-                            "title": "Idle Load Balancer", "severity": "High",
-                            "description": f"Load Balancer {lb_name} appears to have no healthy targets across all its target groups.",
-                            "recommendation": "This LB was likely provisioned by a Kubernetes Service. Verify if the Service is still needed. If not, deleting it will deprovision this LB.", "resource_id": lb_name
-                        })
-    except ClientError as e:
-        print(f"Warning: Could not check for idle LBs. Permission might be missing. {e}")
-    return insights
 
 # --- Cost Fetcher Functions ---
 def get_cost_for_clusters(session, cluster_names: list):
@@ -277,67 +140,7 @@ def get_cost_breakdown(account_id, region, cluster_name, role_arn=None):
     except ClientError as e:
         return {'error': f"Could not fetch cost breakdown: {e.response['Error']['Message']}"}
 
-def get_instance_type_pricing(region: str):
-    """
-    Returns a representative, hardcoded map of on-demand instance prices per hour.
-    This is a simplified proof-of-concept. A real implementation would use the Price List API.
-    Prices are for Linux, On-Demand, in USD per hour. Last checked mid-2024.
-    """
-    pricing = {
-        'us-east-1': { # N. Virginia
-            't2.medium': 0.0464, 't2.large': 0.0928, 't2.xlarge': 0.1856, 't2.2xlarge': 0.3712,
-            't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664, 't3.2xlarge': 0.3328,
-            't4g.medium': 0.0336, 't4g.large': 0.0672, 't4g.xlarge': 0.1344, 't4g.2xlarge': 0.2688,
-            'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384, 'm5.4xlarge': 0.768,
-            'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'm6i.2xlarge': 0.384, 'm6i.4xlarge': 0.768,
-            'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34, 'c5.4xlarge': 0.68,
-            'c6i.large': 0.085, 'c6i.xlarge': 0.17, 'c6i.2xlarge': 0.34, 'c6i.4xlarge': 0.68,
-            'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504, 'r5.4xlarge': 1.008,
-            'r6i.large': 0.126, 'r6i.xlarge': 0.252, 'r6i.2xlarge': 0.504, 'r6i.4xlarge': 1.008,
-        },
-        'us-west-2': { # Oregon
-            't2.medium': 0.0464, 't2.large': 0.0928, 't2.xlarge': 0.1856, 't2.2xlarge': 0.3712,
-            't3.medium': 0.0416, 't3.large': 0.0832, 't3.xlarge': 0.1664, 't3.2xlarge': 0.3328,
-            't4g.medium': 0.0336, 't4g.large': 0.0672, 't4g.xlarge': 0.1344, 't4g.2xlarge': 0.2688,
-            'm5.large': 0.096, 'm5.xlarge': 0.192, 'm5.2xlarge': 0.384, 'm5.4xlarge': 0.768,
-            'm6i.large': 0.096, 'm6i.xlarge': 0.192, 'm6i.2xlarge': 0.384, 'm6i.4xlarge': 0.768,
-            'c5.large': 0.085, 'c5.xlarge': 0.17, 'c5.2xlarge': 0.34, 'c5.4xlarge': 0.68,
-            'c6i.large': 0.085, 'c6i.xlarge': 0.17, 'c6i.2xlarge': 0.34, 'c6i.4xlarge': 0.68,
-            'r5.large': 0.126, 'r5.xlarge': 0.252, 'r5.2xlarge': 0.504, 'r5.4xlarge': 1.008,
-            'r6i.large': 0.126, 'r6i.xlarge': 0.252, 'r6i.2xlarge': 0.504, 'r6i.4xlarge': 1.008,
-        },
-        'eu-west-1': { # Ireland
-            't2.medium': 0.052, 't2.large': 0.104, 't2.xlarge': 0.208, 't2.2xlarge': 0.416,
-            't3.medium': 0.0464, 't3.large': 0.0928, 't3.xlarge': 0.1856, 't3.2xlarge': 0.3712,
-            'm6i.large': 0.106, 'm6i.xlarge': 0.212, 'm6i.2xlarge': 0.424, 'm6i.4xlarge': 0.848,
-            'c6i.large': 0.094, 'c6i.xlarge': 0.188, 'c6i.2xlarge': 0.376, 'c6i.4xlarge': 0.752,
-            'r6i.large': 0.139, 'r6i.xlarge': 0.278, 'r6i.2xlarge': 0.556, 'r6i.4xlarge': 1.112,
-        }
-    }
-    # Return pricing for the specified region, or default to us-east-1 if not found.
-    return pricing.get(region, pricing.get('us-east-1', {}))
 
-def calculate_what_if_cost(region, current_instance_type, target_instance_type, instance_count):
-    """Calculates the estimated monthly savings for an instance type change."""
-    pricing_map = get_instance_type_pricing(region)
-    current_price = pricing_map.get(current_instance_type)
-    target_price = pricing_map.get(target_instance_type)
-
-    if current_price is None:
-        return {"error": f"Pricing for current instance type '{current_instance_type}' not available in this demo."}
-    if target_price is None:
-        return {"error": f"Pricing for target instance type '{target_instance_type}' not available in this demo."}
-
-    # 730 hours in a month on average
-    current_monthly_cost = current_price * instance_count * 730
-    target_monthly_cost = target_price * instance_count * 730
-    monthly_savings = current_monthly_cost - target_monthly_cost
-
-    return {
-        "current_monthly_cost": current_monthly_cost,
-        "target_monthly_cost": target_monthly_cost,
-        "monthly_savings": monthly_savings,
-    }
 
 # --- Detailed AWS Fetcher Functions ---
 def fetch_managed_nodegroups(eks_client, cluster_name):
@@ -366,7 +169,7 @@ def fetch_karpenter_nodes_for_cluster(core_v1_api):
                 karpenter_nodes.append({
                     "name": node.metadata.name,
                     "status": "Ready" if any(c.status == 'True' for c in node.status.conditions if c.type == 'Ready') else "NotReady",
-                    "desiredSize": 1, 
+                    "desiredSize": 1,
                     "instanceTypes": [labels.get('node.kubernetes.io/instance-type', 'unknown')],
                     "amiType": "AUTO-MODE",
                     "version": node.status.node_info.kubelet_version,
@@ -380,21 +183,20 @@ def fetch_karpenter_nodes_for_cluster(core_v1_api):
     return karpenter_nodes
 
 
-# --- REFACTORED FUNCTION ---
 def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca, role_arn=None):
     """
     Fetches detailed workload info using the kubernetes-python client for reliability.
     """
     print(f"Fetching full Kubernetes object map for {cluster_name} using python client...")
     k8s_data = {"pods": [], "services": [], "ingresses": [], "nodes": [], "deployments": [], "map_nodes": [], "map_edges": [], "error": None}
-    
+
     try:
         # Unified API client creation
         api_client = get_k8s_api_client(cluster_name, cluster_endpoint, cluster_ca, role_arn)
         core_v1 = client.CoreV1Api(api_client)
         apps_v1 = client.AppsV1Api(api_client)
         networking_v1 = client.NetworkingV1Api(api_client)
-        
+
         # Fetch all resources
         pod_list = core_v1.list_pod_for_all_namespaces(timeout_seconds=60)
         svc_list = core_v1.list_service_for_all_namespaces(timeout_seconds=60)
@@ -411,7 +213,7 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
 
         map_nodes, map_edges = [], []
         now = datetime.now(timezone.utc)
-        
+
         # Process Ingresses
         for ing in k8s_data["ingresses"]:
             details = { "kind": "Ingress", "name": ing["metadata"]["name"], "namespace": ing["metadata"]["namespace"], "class": ing["spec"].get("ingressClassName", "N/A"), "hosts": [rule.get("host") for rule in ing.get("spec", {}).get("rules", [])], "created": ing['metadata']['creationTimestamp']}
@@ -422,7 +224,7 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
                     for svc in k8s_data["services"]:
                         if svc["metadata"]["name"] == svc_name and svc["metadata"]["namespace"] == ing["metadata"]["namespace"]:
                             map_edges.append({"from": ing["metadata"]["uid"], "to": svc["metadata"]["uid"]}); break
-        
+
         # Process Services
         for svc in k8s_data["services"]:
             details = {"kind": "Service", "name": svc["metadata"]["name"], "namespace": svc["metadata"]["namespace"], "type": svc["spec"]["type"], "cluster_ip": svc["spec"].get("clusterIP", "N/A"), "ports": [f"{p.get('name', '')} {p['port']}:{p['targetPort']}/{p['protocol']}" for p in svc["spec"].get("ports", [])], "selector": svc["spec"].get("selector"), "created": svc['metadata']['creationTimestamp']}
@@ -461,7 +263,7 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
     except Exception as e:
         k8s_data['error'] = f"An unexpected error occurred connecting to Kubernetes: {str(e)}"
         print(f"UNEXPECTED ERROR fetching k8s map for {cluster_name}: {e}")
-    
+
     return k8s_data
 
 def fetch_addons_for_cluster(eks_client, cluster_name):
@@ -502,70 +304,24 @@ def upgrade_nodegroup_version(account_id, region, cluster_name, nodegroup_name, 
     except ClientError as e:
         return {"error": e.response['Error']['Message']}
 
-def find_log_anomalies(message: str) -> bool:
-    """Uses regex to find common error patterns in log messages."""
-    # Case-insensitive patterns
-    patterns = [
-        re.compile(r"CrashLoopBackOff", re.IGNORECASE),
-        re.compile(r"FailedScheduling", re.IGNORECASE),
-        re.compile(r"ImagePullBackOff", re.IGNORECASE),
-        re.compile(r"ErrImagePull", re.IGNORECASE),
-        re.compile(r"NodeHasSufficientMemory", re.IGNORECASE),
-        re.compile(r"failed calling webhook", re.IGNORECASE),
-        re.compile(r"forbidden", re.IGNORECASE),
-        re.compile(r"authentication failed", re.IGNORECASE),
-        # Broader patterns for common log levels in different formats
-        re.compile(r"level=(error|warn|warning|fatal)", re.IGNORECASE),
-        re.compile(r"\"level\":\"(error|warn|warning|fatal)\"", re.IGNORECASE),
-        # General error keyword
-        re.compile(r"\berror\b", re.IGNORECASE)
-    ]
-    return any(p.search(message) for p in patterns)
 
-def stream_cloudwatch_logs(account_id, region, log_group_name, log_type_from_ui, role_arn=None):
-    log_stream_prefix_map = {'api': 'kube-apiserver-', 'audit': 'kube-apiserver-audit-', 'authenticator': 'authenticator-', 'controllerManager': 'kube-controller-manager-', 'scheduler': 'kube-scheduler-'}
-    log_type_prefix = log_stream_prefix_map.get(log_type_from_ui)
-    if not log_type_prefix: yield f"data: {json.dumps({'error': f'Invalid log type: {log_type_from_ui}'})}\n\n"; return
-
-    session = get_session(role_arn)
-    if not session: yield f"data: {json.dumps({'error': 'Failed to get session.'})}\n\n"; return
-    logs_client = session.client('logs', region_name=region)
-    try:
-        paginator = logs_client.get_paginator('describe_log_streams')
-        all_streams = [s for p in paginator.paginate(logGroupName=log_group_name, logStreamNamePrefix=log_type_prefix) for s in p.get('logStreams', [])]
-        if not all_streams: yield f"data: {json.dumps({'message': f'No log streams for \"{log_type_from_ui}\".'})}\n\n"; return
-        
-        latest_stream = max(all_streams, key=lambda s: s.get('lastEventTimestamp', 0))
-        start_time = int((datetime.now(timezone.utc) - timedelta(minutes=10)).timestamp() * 1000)
-        event_count = 0
-        for page in logs_client.get_paginator('filter_log_events').paginate(logGroupName=log_group_name, logStreamNames=[latest_stream['logStreamName']], startTime=start_time, interleaved=True):
-            for event in page['events']:
-                event_count += 1
-                # Check for anomalies
-                if find_log_anomalies(event.get('message', '')):
-                    event['anomaly'] = True
-                yield f"data: {json.dumps(event)}\n\n"
-            time.sleep(1)
-        if event_count == 0: yield f"data: {json.dumps({'message': 'No new log events in last 10 minutes.'})}\n\n"
-    except ClientError as e: yield f"data: {json.dumps({'error': e.response['Error']['Message']})}\n\n"
-    except Exception as e: yield f"data: {json.dumps({'error': f'Unexpected error: {e}'})}\n\n"
 
 def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
     session = get_session(role_arn)
     if not session:
         return {"error": f"Failed to get session for account {account_id}."}
-    
+
     cw_client = session.client('cloudwatch', region_name=region)
     ns = 'ContainerInsights'
     dims = [{'Name': 'ClusterName', 'Value': cluster_name}]
     period = 300  # 5 minutes
-    
+
     # Define all the metrics we want to fetch, organized by type
     metric_definitions = {
         # Cluster Health
         "node_status_ready": ('node_status_ready', 'Average'),
         "container_restarts": ('pod_number_of_container_restarts', 'Sum'),
-        
+
         # Node Performance
         "node_cpu_utilization": ('node_cpu_utilization', 'Average'),
         "node_memory_utilization": ('node_memory_utilization', 'Average'),
@@ -624,7 +380,7 @@ def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
             },
             'ReturnData': True
         })
-    
+
     try:
         response = cw_client.get_metric_data(
             MetricDataQueries=queries,
@@ -680,35 +436,26 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
         managed_nodegroups_raw = fetch_managed_nodegroups(eks_client, cluster_name)
         karpenter_nodes_raw = []
         cluster_data["workloads"] = {"error": "Missing endpoint or CA data."}
-        cluster_data['analysis'] = {"error": "Missing endpoint or CA data."}
         
+
         # All Kubernetes API calls happen here
         if c_raw.get("endpoint") and c_raw.get("certificateAuthority", {}).get("data"):
             endpoint, ca_data = c_raw["endpoint"], c_raw["certificateAuthority"]["data"]
             cluster_data["workloads"] = get_kubernetes_workloads_and_map(cluster_name, endpoint, ca_data, role_arn)
-            
+
             # Perform analysis if workload fetching was successful
             if not cluster_data["workloads"].get("error"):
                 try:
                     # We can re-use the python-client for analysis
                     api_client = get_k8s_api_client(cluster_name, endpoint, ca_data, role_arn)
                     core_v1 = client.CoreV1Api(api_client)
-                    apps_v1 = client.AppsV1Api(api_client)
-                    custom_objects_api = client.CustomObjectsApi(api_client)
-                    
-                    pod_metrics = get_pod_metrics(custom_objects_api)
-                    # Pass pod_metrics to the frontend for display
-                    cluster_data['pod_metrics'] = {} if "error" in pod_metrics else pod_metrics
-
-                    cluster_data['analysis'] = {"error": pod_metrics["error"]} if "error" in pod_metrics else analyze_workloads(core_v1, apps_v1, pod_metrics)
                     
                     # Fetch karpenter nodes using the same client
                     karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(core_v1)
                 except Exception as e:
                     print(f"Failed to perform agentless analysis for {cluster_name}: {e}")
-                    cluster_data['analysis'] = {"error": f"Failed during K8s client interaction for analysis: {e}"}
-            else:
-                cluster_data['analysis'] = {"error": "Skipped due to workload fetch failure."}
+                    
+            
 
         processed_nodegroups = [{"name": ng.get("nodegroupName"), "status": ng.get("status"), "amiType": ng.get("amiType"), "instanceTypes": ng.get("instanceTypes", []), "releaseVersion": ng.get("releaseVersion"), "version": ng.get("version"), "createdAt": ng.get("createdAt"), "desiredSize": ng.get("scalingConfig", {}).get("desiredSize"), "is_karpenter_node": False} for ng in managed_nodegroups_raw]
         processed_nodegroups.extend(karpenter_nodes_raw)
@@ -716,8 +463,7 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
         cluster_data.update({
             "nodegroups_data": processed_nodegroups, "addons": fetch_addons_for_cluster(eks_client, cluster_name),
             "fargate_profiles": fetch_fargate_profiles_for_cluster(eks_client, cluster_name), "oidc_provider_url": fetch_oidc_provider_for_cluster(c_raw),
-            "networking": c_raw.get("resourcesVpcConfig", {}), "security_insights": get_security_insights(c_raw, eks_client),
-            "cost_insights": get_cost_optimization_insights(session, c_raw['region'], cluster_name)
+            "networking": c_raw.get("resourcesVpcConfig", {}), "security_insights": get_security_insights(c_raw, eks_client)
         })
     return cluster_data
 
@@ -737,7 +483,7 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
     except Exception as e: print(f"WARNING: Could not determine primary account ID: {e}")
     accounts_to_scan = [acc for acc in all_possible_accounts if acc['id'] in accessible_accounts]
     if not accounts_to_scan and group_to_account_list: return {"clusters": [], "quick_info": {}, "errors": ["User has no access to any configured AWS accounts."]}
-    
+
     all_clusters_raw, errors, clusters_to_describe = [], [], []
     for account in accounts_to_scan:
         session = get_session(account.get('role_arn'))
@@ -752,7 +498,7 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
             desc = cluster_info['session'].client('eks', region_name=cluster_info['region']).describe_cluster(name=cluster_info['name']).get('cluster', {}); desc['region'] = cluster_info['region']
             all_clusters_raw.append(desc)
         except Exception as e: errors.append(f"Error describing {cluster_info['name']}: {e}")
-    
+
     processed_clusters = [_process_cluster_data(c) for c in all_clusters_raw]
     clusters_by_account = {}
     for c in processed_clusters: clusters_by_account.setdefault(c['account_id'], []).append(c['name'])

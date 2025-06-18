@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 import copy
-import uuid
+
 
 # SAML specific imports
 from onelogin.saml2.auth import OneLogin_Saml2_Auth
@@ -27,10 +27,8 @@ from aws_data_fetcher import (
     get_live_eks_data,
     get_single_cluster_details,
     upgrade_nodegroup_version,
-    stream_cloudwatch_logs,
     get_cluster_metrics,
-    get_cost_breakdown,
-    calculate_what_if_cost
+    get_cost_breakdown
 )
 
 # Load environment variables from your .env file
@@ -57,8 +55,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 # Cache with 1-hour TTL
 cache = TTLCache(maxsize=200, ttl=3600)
-# In-memory store for Time Machine snapshots (cleared on restart)
-SNAPSHOT_STORE = {}
+
 
 # --- SAML Helper Function ---
 async def prepare_saml_request(request: Request):
@@ -204,7 +201,7 @@ async def read_cluster_detail(request: Request, account_id: str, region: str, cl
 async def refresh_data(user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
     cache.clear()
-    SNAPSHOT_STORE.clear()
+    
     logging.info(f"Cache and Snapshots cleared by user: {user.get('email')}")
     return JSONResponse(content={"status": "success", "message": "Cache and Snapshots cleared."})
 
@@ -241,26 +238,6 @@ async def api_upgrade_nodegroup(request: Request, user: dict = Depends(get_curre
     if "error" in result: return JSONResponse(status_code=400, content=result)
     return JSONResponse(content=result)
 
-@app.get("/api/logs/{account_id}/{region}/{cluster_name}/{log_type}", tags=["API"])
-async def get_logs(account_id: str, region: str, cluster_name: str, log_type: str, user: dict = Depends(get_current_user)):
-    if isinstance(user, JSONResponse): return user
-    
-    role_arn = None
-    try:
-        self_account_id = boto3.client('sts').get_caller_identity().get('Account')
-        if account_id != self_account_id:
-            role_arn = get_role_arn_for_account(account_id)
-            if not role_arn:
-                return JSONResponse(status_code=404, content={"error": f"Role ARN not found for account {account_id}."})
-    except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
-        return JSONResponse(status_code=500, content={"error": f"Could not determine application's account ID: {e}"})
-            
-    log_group_name = f"/aws/eks/{cluster_name}/cluster"
-    return StreamingResponse(
-        stream_cloudwatch_logs(account_id, region, log_group_name, log_type, role_arn),
-        media_type="text/event-stream"
-    )
-
 @app.get("/api/metrics/{account_id}/{region}/{cluster_name}", tags=["API"])
 async def api_get_cluster_metrics(account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
@@ -281,116 +258,6 @@ async def api_get_cost_breakdown(account_id: str, region: str, cluster_name: str
         return JSONResponse(content=costs, status_code=500)
     return JSONResponse(content=costs)
 
-@app.post("/api/cost-what-if/{account_id}/{region}/{cluster_name}", tags=["API"])
-async def api_cost_what_if(request: Request, account_id: str, region: str, user: dict = Depends(get_current_user)):
-    if isinstance(user, JSONResponse): return user
-    data = await request.json()
-    result = calculate_what_if_cost(
-        region=region,
-        current_instance_type=data.get('current_instance_type'),
-        target_instance_type=data.get('target_instance_type'),
-        instance_count=data.get('instance_count')
-    )
-    if 'error' in result:
-        return JSONResponse(content=result, status_code=400)
-    return JSONResponse(content=result)
-
-@app.post("/api/snapshot/{account_id}/{region}/{cluster_name}", tags=["API"])
-async def create_snapshot(account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
-    if isinstance(user, JSONResponse): return user
-    role_arn = get_role_arn_for_account(account_id)
-    # Fetch fresh, non-cached data for the snapshot
-    cluster_details = get_single_cluster_details(account_id, region, cluster_name, role_arn, use_cache=False)
-    if cluster_details.get("errors"):
-        return JSONResponse(content={"error": f"Failed to fetch cluster data for snapshot: {cluster_details['errors']}"}, status_code=500)
-
-    snapshot_id = f"{cluster_name}_{uuid.uuid4().hex[:8]}"
-    SNAPSHOT_STORE[snapshot_id] = {
-        "id": snapshot_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "cluster_name": cluster_name,
-        "data": cluster_details
-    }
-    logging.info(f"Created snapshot {snapshot_id} for user {user.get('email')}")
-    return JSONResponse(content={"status": "success", "id": snapshot_id, "timestamp": SNAPSHOT_STORE[snapshot_id]['timestamp']})
-
-@app.get("/api/snapshots/{account_id}/{region}/{cluster_name}", tags=["API"])
-async def list_snapshots(cluster_name: str, user: dict = Depends(get_current_user)):
-    if isinstance(user, JSONResponse): return user
-    cluster_snapshots = [
-        {"id": s["id"], "timestamp": s["timestamp"]}
-        for s in SNAPSHOT_STORE.values() if s["cluster_name"] == cluster_name
-    ]
-    return JSONResponse(content=cluster_snapshots)
-
-def diff_snapshots(base_data, compare_data):
-    """Computes the difference between two cluster data snapshots using dictionary access."""
-    diffs = {
-        "Deployments": {"added": [], "removed": [], "changed": []},
-        "Services": {"added": [], "removed": [], "changed": []},
-    }
-
-    def create_resource_map(snapshot_data, workload_key, resource_key):
-        workloads = snapshot_data.get(workload_key, {})
-        if not isinstance(workloads, dict): return {}
-        items = workloads.get(resource_key, [])
-        if not items: return {}
-        return {f"{item['metadata']['namespace']}/{item['metadata']['name']}": item for item in items}
-
-    # Diff Deployments
-    base_deps = create_resource_map(base_data, 'workloads', 'deployments')
-    compare_deps = create_resource_map(compare_data, 'workloads', 'deployments')
-
-    for name, dep in compare_deps.items():
-        if name not in base_deps:
-            diffs["Deployments"]["added"].append({"name": dep['metadata']['name'], "namespace": dep['metadata']['namespace']})
-        else:
-            base_dep = base_deps[name]
-            changes = []
-            if base_dep['spec']['replicas'] != dep['spec']['replicas']:
-                changes.append(f"Replicas: {base_dep['spec']['replicas']} -> {dep['spec']['replicas']}")
-            
-            base_image = base_dep['spec']['template']['spec']['containers'][0]['image']
-            compare_image = dep['spec']['template']['spec']['containers'][0]['image']
-            if base_image != compare_image:
-                 changes.append(f"Image changed: ...{base_image[-40:]} -> ...{compare_image[-40:]}")
-            
-            if changes:
-                diffs["Deployments"]["changed"].append({"name": dep['metadata']['name'], "namespace": dep['metadata']['namespace'], "diff": changes})
-    
-    for name, dep in base_deps.items():
-        if name not in compare_deps:
-            diffs["Deployments"]["removed"].append({"name": dep['metadata']['name'], "namespace": dep['metadata']['namespace']})
-    
-    # Diff Services
-    base_svcs = create_resource_map(base_data, 'workloads', 'services')
-    compare_svcs = create_resource_map(compare_data, 'workloads', 'services')
-    for name, svc in compare_svcs.items():
-        if name not in base_svcs:
-            diffs["Services"]["added"].append({"name": svc['metadata']['name'], "namespace": svc['metadata']['namespace']})
-    for name, svc in base_svcs.items():
-        if name not in compare_svcs:
-            diffs["Services"]["removed"].append({"name": svc['metadata']['name'], "namespace": svc['metadata']['namespace']})
-
-    return diffs
-
-@app.get("/api/snapshot-diff", tags=["API"])
-async def get_snapshot_diff(base_id: str, compare_id: str, user: dict = Depends(get_current_user)):
-    if isinstance(user, JSONResponse): return user
-    
-    try:
-        base_snapshot = SNAPSHOT_STORE.get(base_id)
-        compare_snapshot = SNAPSHOT_STORE.get(compare_id)
-
-        if not base_snapshot or not compare_snapshot:
-            return JSONResponse(content={"error": "One or both snapshot IDs are invalid."}, status_code=404)
-            
-        diff_result = diff_snapshots(base_snapshot['data'], compare_snapshot['data'])
-        
-        return JSONResponse(content=diff_result)
-    except Exception as e:
-        logging.error(f"Snapshot diff failed for {base_id} vs {compare_id}: {e}", exc_info=True)
-        return JSONResponse(status_code=500, content={"error": f"An internal error occurred while comparing snapshots: {str(e)}"})
 
 
 # --- Main Execution Block ---

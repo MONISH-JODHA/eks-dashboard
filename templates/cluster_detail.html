@@ -37,9 +37,6 @@
             <button class="tab-link" onclick="openTab(event, 'compute')"><i data-feather="hard-drive"></i>Compute</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
             <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="bar-chart-2"></i>Observability</button>
-            <button class="tab-link" onclick="openTab(event, 'cost')"><i data-feather="dollar-sign"></i>Cost Analysis</button>
-            <button class="tab-link" onclick="openTab(event, 'timemachine')"><i data-feather="clock"></i>Time Machine</button>
-            <button class="tab-link" onclick="openTab(event, 'logs')"><i data-feather="file-text"></i>Logs</button>
         </div>
 
         <!-- Overview Tab -->
@@ -94,81 +91,6 @@
         
         <!-- Analysis & Insights Tab -->
         <div id="insights" class="tab-content">
-            <div class="widget">
-                <div class="widget-header"><h2><i data-feather="trending-down"></i> Cost Optimization Insights</h2></div>
-                <div class="widget-content">
-                    {% if cluster.cost_insights %}
-                    <div class="insights-grid">
-                        {% for insight in cluster.cost_insights %}
-                        <div class="insight-card">
-                            <div class="insight-card-header">
-                                <span class="insight-card-title">{{ insight.title }}</span>
-                                <span class="severity-badge severity-{{ insight.severity.lower() }}">{{ insight.severity }}</span>
-                            </div>
-                            <div class="insight-card-body">
-                                <p>{{ insight.description }}</p>
-                                <p><strong>Recommendation:</strong> {{ insight.recommendation }}</p>
-                            </div>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <p class="text-muted" style="text-align:center; padding: 20px 0;">No cost optimization opportunities found.</p>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="widget">
-                <div class="widget-header"><h2><i data-feather="thermometer"></i> Workload Anomaly Detection</h2></div>
-                <div class="widget-content" style="padding:0;">
-                    {% if cluster.analysis and cluster.analysis.anomalies %}
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead><tr><th>Pod</th><th>Namespace</th><th>Anomaly Type</th><th>Severity</th><th>Details</th></tr></thead>
-                                <tbody>
-                                {% for anom in cluster.analysis.anomalies %}
-                                    <tr>
-                                        <td>{{ anom.pod }}</td>
-                                        <td>{{ anom.namespace }}</td>
-                                        <td><span class="tag code">{{ anom.type }}</span></td>
-                                        <td><span class="severity-badge severity-{{ anom.severity.lower() }}">{{ anom.severity }}</span></td>
-                                        <td class="text-secondary" style="white-space: normal;">{{ anom.details }}</td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <p class="text-muted" style="text-align: center; padding: 2rem;">No workload anomalies detected.</p>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="widget">
-                <div class="widget-header"><h2><i data-feather="minimize-2"></i> Rightsizing Recommendations</h2></div>
-                <div class="widget-content" style="padding:0;">
-                     {% if cluster.analysis and cluster.analysis.rightsizing %}
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead><tr><th>Workload</th><th>Namespace</th><th>Metric</th><th>Current Request</th><th>Recommended Request</th></tr></thead>
-                                <tbody>
-                                {% for rec in cluster.analysis.rightsizing %}
-                                    <tr>
-                                        <td>{{ rec.workload }}</td>
-                                        <td>{{ rec.namespace }}</td>
-                                        <td><span class="tag code">{{ rec.metric }}</span></td>
-                                        <td>{{ rec.current_request }}</td>
-                                        <td><strong>{{ rec.recommended_request }}</strong></td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                     {% elif cluster.analysis and cluster.analysis.error %}
-                        <div class="error-message" style="margin: 1.5rem;">{{ cluster.analysis.error }}</div>
-                     {% else %}
-                        <p class="text-muted" style="text-align: center; padding: 2rem;">No specific rightsizing opportunities found at this time.</p>
-                     {% endif %}
-                </div>
-            </div>
             <div class="widget">
                 <div class="widget-header"><h2><i data-feather="shield"></i> Security Best Practices</h2></div>
                 <div class="widget-content" style="padding:0;">
@@ -251,7 +173,7 @@
                     <div class="widget-content" style="padding:0;">
                         <div class="table-container">
                              <table class="data-table">
-                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th><th>CPU Usage</th><th>Memory Usage</th></tr></thead>
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th></tr></thead>
                                 <tbody>
                                     {% for pod in cluster.workloads.pods %}
                                     <tr>
@@ -261,16 +183,9 @@
                                         <td><span class="status-badge status-{{ pod.status.phase.lower() }}">{{ pod.status.phase }}</span></td>
                                         <td>{{ pod.restarts }}</td>
                                         <td>{{ pod.age }}</td>
-                                        {% set p_metrics = cluster.get('pod_metrics', {}).get(pod.metadata.namespace ~ '/' ~ pod.metadata.name) %}
-                                        <td>
-                                            {% if p_metrics and p_metrics.cpu is not none %}{{ p_metrics.cpu }}m{% else %}<span class="text-muted">N/A</span>{% endif %}
-                                        </td>
-                                        <td>
-                                            {% if p_metrics and p_metrics.memory is not none %}{{ (p_metrics.memory / (1024*1024)) | round(1) }} MiB{% else %}<span class="text-muted">N/A</span>{% endif %}
-                                        </td>
                                     </tr>
                                     {% else %}
-                                    <tr><td colspan="8" class="text-muted" style="text-align:center; padding: 2rem;">No pods found.</td></tr>
+                                    <tr><td colspan="6" class="text-muted" style="text-align:center; padding: 2rem;">No pods found.</td></tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
@@ -388,84 +303,6 @@
             </div>
         </div>
 
-        <!-- Cost Analysis Tab -->
-        <div id="cost" class="tab-content">
-            <div class="cost-grid">
-                <div class="widget">
-                    <div class="widget-header"><h2>Cost Breakdown by Service (30d)</h2></div>
-                    <div class="widget-content chart-widget-content" id="cost-breakdown-container">
-                        <canvas id="costBreakdownChart"></canvas>
-                    </div>
-                </div>
-                <div class="widget">
-                    <div class="widget-header"><h2>"What-If" Cost Calculator</h2></div>
-                    <div class="widget-content">
-                        <form id="what-if-form" class="what-if-form">
-                            <label for="what-if-nodegroup">Select Nodegroup:</label>
-                            <select id="what-if-nodegroup" name="nodegroup">
-                                <option value="">-- Select a nodegroup --</option>
-                                {% for ng in cluster.nodegroups_data %}{% if not ng.is_karpenter_node %}
-                                <option value="{{ ng.name }}" data-instances="{{ ng.instanceTypes | join(',') }}" data-count="{{ ng.desiredSize }}">{{ ng.name }} ({{ ng.desiredSize }}x {{ ng.instanceTypes | join(',') }})</option>
-                                {% endif %}{% endfor %}
-                            </select>
-                            <label for="what-if-target-instance">Target Instance Type:</label>
-                            <input type="text" id="what-if-target-instance" name="target_instance" placeholder="e.g., m6i.large">
-                            <button type="submit" class="action-button">Calculate Savings</button>
-                        </form>
-                        <div id="what-if-results">
-                            <h4>Estimated Cost Impact:</h4>
-                            <p id="what-if-results-text"></p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Time Machine Tab -->
-        <div id="timemachine" class="tab-content">
-            <div class="widget">
-                <div class="widget-header">
-                    <h2>Cluster Snapshots</h2>
-                    <button id="create-snapshot-btn" class="action-button"><i data-feather="camera"></i> Create New Snapshot</button>
-                </div>
-                <div class="widget-content">
-                    <p class="text-secondary">Create point-in-time snapshots of the cluster's configuration to compare changes over time. Snapshots are stored in memory and will be lost on application restart.</p>
-                    <ul id="snapshot-list" class="snapshot-list">
-                        <!-- Snapshots will be loaded here by JS -->
-                    </ul>
-                </div>
-            </div>
-            <div class="widget">
-                <div class="widget-header"><h2>Compare Snapshots</h2></div>
-                <div class="widget-content">
-                    <div class="snapshot-diff-selector">
-                        <select id="diff-select-base"></select>
-                        <span>vs.</span>
-                        <select id="diff-select-compare"></select>
-                        <button id="run-diff-btn" class="action-button">Compare</button>
-                    </div>
-                    <div id="diff-results-container" style="display:none;">
-                        <h3 id="diff-results-title"></h3>
-                        <div id="diff-results-grid" class="diff-results-grid"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Logs Tab -->
-        <div id="logs" class="tab-content">
-            <div class="widget">
-                <div class="widget-header">
-                    <h2>Control Plane Logs (Last 10 minutes)</h2>
-                    <select id="log-type-selector">
-                        <option value="api">api</option><option value="audit">audit</option><option value="authenticator">authenticator</option>
-                        <option value="scheduler">scheduler</option><option value="controllerManager">controllerManager</option>
-                    </select>
-                </div>
-                <div class="widget-content"><pre id="log-output" class="log-box">Select a log type to begin streaming...</pre></div>
-            </div>
-        </div>
-
     </div>
     {% endif %}
 {% endblock %}
@@ -483,19 +320,16 @@
     // --- Page State Variables ---
     let workloadGraphRendered = false;
     let visNetwork, visNodes, visEdges;
-    let eventSource = null;
+    
     let activeTab = 'overview';
     let metricCharts = {};
     let metricsLoaded = false;
-    let costChart;
+    
 
     // --- Tab Switching Logic ---
     function openTab(evt, tabName) {
         activeTab = tabName;
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        
 
         document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
         document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
@@ -505,12 +339,6 @@
         if (tabName === 'workloads' && !workloadGraphRendered) {
             renderWorkloadGraph();
             workloadGraphRendered = true;
-        } else if (tabName === 'logs') {
-            startLogStream();
-        } else if (tabName === 'cost' && !costChart) {
-            loadCostBreakdown();
-        } else if (tabName === 'timemachine') {
-            loadSnapshots();
         } else if (tabName === 'observability' && !metricsLoaded) {
             loadMetrics();
         }
@@ -630,53 +458,7 @@
         document.getElementById('graph-search').value = '';
     }
 
-    // --- Log Streaming ---
-    function startLogStream() {
-        if (eventSource) eventSource.close();
-        const logOutput = document.getElementById('log-output');
-        logOutput.innerHTML = '';
-        const connectingMsg = document.createElement('div');
-        connectingMsg.className = 'text-muted';
-        connectingMsg.textContent = 'Connecting to log stream...';
-        logOutput.appendChild(connectingMsg);
-
-        const logType = document.getElementById('log-type-selector').value;
-        const url = `/api/logs/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}/${logType}`;
-        eventSource = new EventSource(url);
-        let firstMessage = true;
-        const MAX_LOG_LINES = 500;
-
-        eventSource.onmessage = function(event) {
-            if (firstMessage) {
-                logOutput.innerHTML = '';
-                firstMessage = false;
-            }
-            const data = JSON.parse(event.data);
-            const logLine = document.createElement('div');
-            logLine.className = 'log-line';
-            if (data.error) {
-                logLine.className += ' error';
-                logLine.textContent = `ERROR: ${data.error}`;
-                eventSource.close();
-            } else {
-                if (data.anomaly) { logLine.classList.add('anomaly'); }
-                const message = data.message || JSON.stringify(data);
-                const timestamp = data.timestamp ? new Date(data.timestamp).toISOString() : '';
-                logLine.textContent = `[${timestamp}] ${message}`;
-            }
-            logOutput.appendChild(logLine);
-            if (logOutput.childElementCount > MAX_LOG_LINES) { logOutput.removeChild(logOutput.firstChild); }
-            logOutput.scrollTop = logOutput.scrollHeight;
-        };
-        eventSource.onerror = function() {
-            const errorLine = document.createElement('div');
-            errorLine.className = 'log-line error';
-            errorLine.textContent = 'Connection to log stream lost or stream ended.';
-            logOutput.appendChild(errorLine);
-            logOutput.scrollTop = logOutput.scrollHeight;
-            if (eventSource) eventSource.close();
-        };
-    }
+    
     
     // --- Metrics and Charting Functions ---
     function getChartBaseOptions(stacked = false) {
@@ -771,65 +553,6 @@
         }
     }
     
-    // --- Cost Analysis ---
-    async function loadCostBreakdown() {
-        const container = document.getElementById('cost-breakdown-container');
-        container.innerHTML = '<p class="text-muted" style="text-align:center;padding:2rem;">Loading cost breakdown...</p><canvas id="costBreakdownChart"></canvas>';
-        try {
-            const url = `/api/cost-breakdown/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}`;
-            const response = await fetch(url);
-            const data = await response.json();
-            if (!response.ok || data.error) throw new Error(data.error || 'Failed to fetch cost breakdown.');
-            const labels = data.map(item => item.service);
-            const values = data.map(item => item.amount);
-            const ctx = document.getElementById('costBreakdownChart').getContext('2d');
-            if (costChart) costChart.destroy();
-            costChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels: labels, datasets: [{ label: 'Cost by Service', data: values, 
-                    backgroundColor: ['#0d6efd', '#6f42c1', '#198754', '#ffc107', '#fd7e14', '#0dcaf0', '#d63384'], 
-                    borderColor: 'var(--surface-color)', borderWidth: 4 }] 
-                },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: 'var(--text-secondary)' } } } }
-            });
-        } catch(e) {
-            container.innerHTML = `<p class="error-message">${e.message}</p><canvas id="costBreakdownChart" style="display:none;"></canvas>`;
-        }
-    }
-
-    // --- Time Machine ---
-    async function loadSnapshots() {
-        const snapshotList = document.getElementById('snapshot-list');
-        const diffBaseSelect = document.getElementById('diff-select-base');
-        const diffCompareSelect = document.getElementById('diff-select-compare');
-        try {
-            const url = `/api/snapshots/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}`;
-            const res = await fetch(url);
-            const snapshots = await res.json();
-            snapshotList.innerHTML = '';
-            diffBaseSelect.innerHTML = '<option value="">Select Base</option>';
-            diffCompareSelect.innerHTML = '<option value="">Select to Compare</option>';
-            if (snapshots.length === 0) {
-                snapshotList.innerHTML = '<p class="text-muted">No snapshots created yet.</p>';
-                return;
-            }
-            snapshots.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).forEach(s => {
-                const li = document.createElement('li');
-                li.innerHTML = `<span>${s.id}</span> <span class="text-muted">${new Date(s.timestamp).toLocaleString()}</span>`;
-                snapshotList.appendChild(li);
-                const optionBase = document.createElement('option');
-                optionBase.value = s.id;
-                optionBase.textContent = `${s.id.split('_').pop()} (${new Date(s.timestamp).toLocaleTimeString()})`;
-                diffBaseSelect.appendChild(optionBase);
-                const optionCompare = document.createElement('option');
-                optionCompare.value = s.id;
-                optionCompare.textContent = `${s.id.split('_').pop()} (${new Date(s.timestamp).toLocaleTimeString()})`;
-                diffCompareSelect.appendChild(optionCompare);
-            });
-        } catch (e) {
-            snapshotList.innerHTML = `<li class="error-message">${e.message}</li>`;
-        }
-    }
 
     // --- DOMContentLoaded Event Listener ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -885,99 +608,8 @@
             });
         });
         
-        document.getElementById('log-type-selector').addEventListener('change', startLogStream);
         
-        document.getElementById('what-if-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const form = e.target;
-            const nodegroup = form.nodegroup.value;
-            const selectedOption = form.nodegroup.options[form.nodegroup.selectedIndex];
-            const currentInstances = selectedOption.dataset.instances;
-            const instanceCount = selectedOption.dataset.count;
-            const targetInstance = form.target_instance.value;
-            const resultsDiv = document.getElementById('what-if-results');
-            const resultsText = document.getElementById('what-if-results-text');
-            if (!nodegroup || !targetInstance) {
-                alert('Please select a nodegroup and enter a target instance type.');
-                return;
-            }
-            resultsText.textContent = 'Calculating...';
-            resultsDiv.style.display = 'block';
-            try {
-                const res = await fetch(`/api/cost-what-if/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ current_instance_type: currentInstances.split(',')[0], target_instance_type: targetInstance, instance_count: parseInt(instanceCount, 10) })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error);
-                const savings = data.monthly_savings;
-                let savingsText = savings > 0 ? `Estimated monthly savings of <strong>$${savings.toFixed(2)}</strong>.` : `Estimated monthly cost increase of <strong>$${Math.abs(savings).toFixed(2)}</strong>.`;
-                resultsText.innerHTML = `Changing ${instanceCount}x ${currentInstances} to ${targetInstance} could result in: <br>${savingsText}<br><small class="text-muted">Note: This is an estimate based on on-demand pricing and may not be exact.</small>`;
-            } catch (e) {
-                resultsText.innerHTML = `<span style="color: #dc3545;">Error: ${e.message}</span>`;
-            }
-        });
-
-        document.getElementById('create-snapshot-btn').addEventListener('click', async (e) => {
-            const btn = e.currentTarget;
-            btn.disabled = true;
-            btn.innerHTML = '<i data-feather="loader" class="spin"></i> Creating...';
-            feather.replace();
-            try {
-                const url = `/api/snapshot/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}`;
-                const res = await fetch(url, { method: 'POST' });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error);
-                await loadSnapshots();
-            } catch (e) {
-                alert(`Failed to create snapshot: ${e.message}`);
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i data-feather="camera"></i> Create New Snapshot';
-                feather.replace();
-            }
-        });
-
-        document.getElementById('run-diff-btn').addEventListener('click', async () => {
-            const diffBaseSelect = document.getElementById('diff-select-base');
-            const diffCompareSelect = document.getElementById('diff-select-compare');
-            const baseId = diffBaseSelect.value;
-            const compareId = diffCompareSelect.value;
-            const resultsContainer = document.getElementById('diff-results-container');
-            const resultsGrid = document.getElementById('diff-results-grid');
-            const resultsTitle = document.getElementById('diff-results-title');
-            if (!baseId || !compareId) { alert('Please select two snapshots to compare.'); return; }
-            if (baseId === compareId) { alert('Please select two different snapshots.'); return; }
-            resultsGrid.innerHTML = '<p class="text-muted">Running comparison...</p>';
-            resultsContainer.style.display = 'block';
-            try {
-                const url = `/api/snapshot-diff?base_id=${encodeURIComponent(baseId)}&compare_id=${encodeURIComponent(compareId)}`;
-                const res = await fetch(url);
-                const diff = await res.json();
-                if (!res.ok) throw new Error(diff.error);
-                const baseLabel = diffBaseSelect.options[diffBaseSelect.selectedIndex].text;
-                const compareLabel = diffCompareSelect.options[diffCompareSelect.selectedIndex].text;
-                resultsTitle.textContent = `Comparing ${baseLabel} vs ${compareLabel}`;
-                resultsGrid.innerHTML = '';
-                Object.entries(diff).forEach(([resourceType, changes]) => {
-                    if (changes.added.length === 0 && changes.removed.length === 0 && changes.changed.length === 0) return;
-                    const card = document.createElement('div');
-                    card.className = 'diff-card';
-                    let html = `<h4>${resourceType}</h4>`;
-                    changes.added.forEach(item => { html += `<div class="diff-item diff-added">+ ${item.name} (${item.namespace})</div>`; });
-                    changes.removed.forEach(item => { html += `<div class="diff-item diff-removed">- ${item.name} (${item.namespace})</div>`; });
-                    changes.changed.forEach(item => {  html += `<div class="diff-item diff-changed">~ ${item.name} (${item.namespace})` + `<ul>${item.diff.map(d => `<li>${d}</li>`).join('')}</ul></div>` });
-                    card.innerHTML = html;
-                    resultsGrid.appendChild(card);
-                });
-                if (resultsGrid.innerHTML === '') {
-                    resultsGrid.innerHTML = '<p class="text-muted">No differences found between the selected snapshots.</p>';
-                }
-            } catch(e) {
-                 resultsGrid.innerHTML = `<p class="error-message">Diff failed: ${e.message}</p>`;
-            }
-        });
+        
     });
 </script>
 {% endblock %}
