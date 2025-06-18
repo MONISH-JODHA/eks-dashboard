@@ -9,13 +9,56 @@
     <!-- Vis Network for workload graph -->
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <link href="https://unpkg.com/vis-network/styles/vis-network.min.css" rel="stylesheet" type="text/css" />
+    <!-- Xterm.js for log streaming -->
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
 
-    <!-- Page-specific styles are now mostly in style.css, this block is for overrides and specifics -->
     <style>
         .widget-content[style*="padding: 0"] .table-container {
             border-top: none;
             border-radius: 0 0 var(--border-radius) var(--border-radius);
         }
+        .modal-backdrop {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5); z-index: 1040;
+            display: none; align-items: center; justify-content: center;
+            animation: fadeIn 0.2s;
+        }
+        .modal-content {
+            background: var(--surface-color); border-radius: var(--border-radius);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            max-height: 90vh; display: flex; flex-direction: column;
+        }
+        .modal-header {
+            padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .modal-header h3 { margin: 0; font-size: 1.25rem; }
+        .modal-body { padding: 1.5rem; overflow-y: auto; }
+        .close-button { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-secondary); }
+        .close-button:hover { color: var(--text-primary); }
+        
+        #log-terminal-container { padding: 1rem; background-color: #1e1e1e; flex-grow: 1; border-radius: 0 0 var(--border-radius) var(--border-radius); }
+        .log-modal-content { width: 80%; max-width: 1200px; height: 80vh; }
+        .xterm .xterm-viewport { width: 100% !important; }
+        
+        .vuln-badge {
+            font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+            border: 1px solid transparent; padding: 0.2rem 0.6rem; border-radius: 5px;
+        }
+        .vuln-summary { cursor: pointer; }
+        .vuln-badge[data-severity="CRITICAL"] { background-color: #58151c; color: white; border-color: #f1AEB5;}
+        .vuln-badge[data-severity="HIGH"] { background-color: #dc3545; color: white; }
+        .vuln-badge[data-severity="MEDIUM"] { background-color: #fd7e14; color: white; }
+        .vuln-badge[data-severity="LOW"] { background-color: #ffc107; color: #212529; }
+        .vuln-badge[data-severity="INFORMATIONAL"] { background-color: #e9ecef; color: #495057; }
+
+        .vuln-table td, .vuln-table th { font-size: 0.85rem; }
+        
+        .event-row-Warning { background-color: #fffbe6 !important; }
+        .event-row-Warning:hover { background-color: #ffeeb7 !important; }
+
     </style>
 {% endblock %}
 
@@ -34,6 +77,8 @@
             <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
             <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="zap"></i>Analysis & Insights</button>
             <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
+            <button class="tab-link" onclick="openTab(event, 'events')"><i data-feather="bell"></i>Events</button>
+            <button class="tab-link" onclick="openTab(event, 'security')"><i data-feather="shield"></i>Security</button>
             <button class="tab-link" onclick="openTab(event, 'compute')"><i data-feather="hard-drive"></i>Compute</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
             <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="bar-chart-2"></i>Observability</button>
@@ -119,7 +164,7 @@
         
         <!-- Workloads Tab -->
         <div id="workloads" class="tab-content">
-            {% if (cluster.workloads is defined) and not cluster.workloads.error %}
+            {% if (cluster.k8s_data is defined) and not cluster.k8s_data.error %}
                 <div class="widget">
                     <div class="widget-header">
                         <h2><i data-feather="share-2"></i> Workload Relationship Map</h2>
@@ -139,7 +184,7 @@
                             <div id="graph-info-panel">
                                 <div id="graph-info-header">
                                     <h3 id="info-panel-title"></h3>
-                                    <button id="graph-info-close"><i data-feather="x"></i></button>
+                                    <button id="graph-info-close" class="close-button"><i data-feather="x"></i></button>
                                 </div>
                                 <div id="info-panel-body" class="info-grid"></div>
                             </div>
@@ -147,27 +192,6 @@
                     </div>
                 </div>
                 <div class="widget">
-                    <div class="widget-header"><h2>Deployments</h2></div>
-                    <div class="widget-content" style="padding:0;">
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead><tr><th>Name</th><th>Namespace</th><th>Replicas</th></tr></thead>
-                                <tbody>
-                                    {% for dep in cluster.workloads.deployments %}
-                                    <tr>
-                                        <td>{{ dep.metadata.name }}</td>
-                                        <td>{{ dep.metadata.namespace }}</td>
-                                        <td><span class="status-badge status-{{ 'active' if dep.status and dep.status.readyReplicas == dep.spec.replicas else 'updating' }}">{{ (dep.status.readyReplicas or 0) if dep.status else 0 }}/{{ dep.spec.replicas }}</span></td>
-                                    </tr>
-                                    {% else %}
-                                    <tr><td colspan="3" class="text-muted" style="text-align:center; padding: 2rem;">No deployments found.</td></tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                 <div class="widget">
                     <div class="widget-header"><h2>All Pods</h2></div>
                     <div class="pod-filters-bar">
                          <input type="text" id="pod-name-filter" placeholder="Filter by pod name...">
@@ -184,19 +208,44 @@
                     <div class="widget-content" style="padding:0;">
                         <div class="table-container">
                              <table class="data-table" id="all-pods-table">
-                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th></tr></thead>
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th><th>Vulnerabilities</th><th>Actions</th></tr></thead>
                                 <tbody>
-                                    {% for pod in cluster.workloads.pods %}
+                                    {% for pod in cluster.k8s_data.pods %}
                                     <tr data-name="{{ pod.metadata.name.lower() }}" data-namespace="{{ pod.metadata.namespace }}" data-status="{{ pod.status.phase }}">
-                                        <td>{{ pod.metadata.name }}</td>
+                                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">{{ pod.metadata.name }}</td>
                                         <td>{{ pod.metadata.namespace }}</td>
-                                        <td>{{ pod.spec.nodeName | default('N/A') }}</td>
+                                        <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">{{ pod.spec.nodeName | default('N/A') }}</td>
                                         <td><span class="status-badge status-{{ pod.status.phase.lower() }}">{{ pod.status.phase }}</span></td>
                                         <td>{{ pod.restarts }}</td>
                                         <td>{{ pod.age }}</td>
+                                        <td>
+                                            {% set total_vulns = {} %}
+                                            {% for image, vuln_data in pod.vulnerabilities.items() %}
+                                                {% if vuln_data.summary %}
+                                                    {% for severity, count in vuln_data.summary.items() %}
+                                                        {% set _ = total_vulns.update({severity: total_vulns.get(severity, 0) + count}) %}
+                                                    {% endfor %}
+                                                {% endif %}
+                                            {% endfor %}
+
+                                            {% if total_vulns %}
+                                            <div class="vuln-summary" style="display: flex; gap: 4px;" onclick='showVulnDetails({{ pod.vulnerabilities | tojson | safe }}, "{{ pod.metadata.name }}")' title="Click to see details">
+                                                {% for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'] %}
+                                                    {% if total_vulns.get(severity, 0) > 0 %}
+                                                        <span class="vuln-badge" data-severity="{{ severity }}">{{ total_vulns[severity] }}</span>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </div>
+                                            {% else %}
+                                                <span class="text-muted">No findings</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <button class="action-btn" style="padding: 0.2rem 0.5rem;" onclick='openLogStream("{{ pod.metadata.namespace }}", "{{ pod.metadata.name }}")' title="Stream Logs"><i data-feather="align-left"></i></button>
+                                        </td>
                                     </tr>
                                     {% else %}
-                                    <tr><td colspan="6" class="text-muted" style="text-align:center; padding: 2rem;">No pods found.</td></tr>
+                                    <tr><td colspan="8" class="text-muted" style="text-align:center; padding: 2rem;">No pods found.</td></tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
@@ -207,10 +256,88 @@
                 <div class="widget-content">
                      <div class="error-message-box"><strong>Could not load workload data.</strong>
                      <p>Could not connect to the Kubernetes API server or permissions are missing.
-                        {% if cluster.workloads.error %}Reason: {{ cluster.workloads.error }}{% endif %}
+                        {% if cluster.k8s_data.error %}Reason: {{ cluster.k8s_data.error }}{% endif %}
                      </p></div>
                  </div>
              {% endif %}
+        </div>
+        
+        <!-- Events Tab -->
+        <div id="events" class="tab-content">
+            <div class="widget">
+                <div class="widget-header">
+                    <h2><i data-feather="bell"></i> Cluster Events <span id="event-stream-status" class="status-badge status-updating" style="margin-left: 1rem;">Connecting...</span></h2>
+                </div>
+                <div class="widget-content" style="padding:0;">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead><tr><th>Last Seen</th><th>Type</th><th>Reason</th><th>Object</th><th>Message</th></tr></thead>
+                            <tbody id="events-table-body">
+                                {% if cluster.k8s_data and cluster.k8s_data.events %}
+                                    {% for event in cluster.k8s_data.events %}
+                                    <tr class="event-row-{{ event.type }}">
+                                        <td>{{ (event.lastTimestamp or event.eventTime) | string | replace('T', ' ') | replace('Z', '') }}</td>
+                                        <td><span class="status-badge status-{{ 'updating' if event.type == 'Warning' else 'active' }}">{{ event.type }}</span></td>
+                                        <td>{{ event.reason }}</td>
+                                        <td>{{ event.involvedObject.kind }}/{{ event.involvedObject.name }}</td>
+                                        <td style="white-space: normal; min-width: 400px;">{{ event.message }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr><td colspan="5" class="text-muted" style="text-align:center; padding: 2rem;">No recent events found. Live stream will populate this table.</td></tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Tab -->
+        <div id="security" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2><i data-feather="check-circle"></i> Best Practices Checklist</h2></div>
+                <div class="widget-content" style="padding:0;">
+                    {% if cluster.security_insights %}
+                    <div class="table-container">
+                        <table class="data-table security-table">
+                             <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
+                             <tbody>
+                                {% for key, insight in cluster.security_insights.items() %}
+                                <tr>
+                                    <td>{{ insight.description }}</td>
+                                    <td style="text-align: center;"><span class="status-badge status-{{ 'active' if insight.status else 'failed' }}">{{ 'Passing' if insight.status else 'Attention' }}</span></td>
+                                    <td class="text-secondary">
+                                        {% if key == 'latest_platform_version' and not insight.status %}Current: {{ insight.current }}, Latest: {{ insight.latest }}{% elif key == 'logging_enabled' and not insight.status %}Missing: {{ insight.missing_logs | join(', ') }}{% else %}-{% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                             </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted" style="text-align:center; padding: 2rem;">Security insights could not be generated for this cluster.</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="widget">
+                 <div class="widget-header"><h2><i data-feather="users"></i> RBAC Explorer</h2></div>
+                 <div class="widget-content">
+                     <p class="text-secondary" style="margin-top: 0;">Explore permissions for different subjects in the cluster. This is a client-side search of all RBAC policies.</p>
+                     <div class="pod-filters-bar" style="border-radius: var(--border-radius); border-bottom: 1px solid var(--border-color);">
+                         <select id="rbac-kind-filter">
+                            <option value="User">User</option>
+                            <option value="Group">Group</option>
+                            <option value="ServiceAccount">ServiceAccount</option>
+                         </select>
+                         <input type="text" id="rbac-name-filter" placeholder="e.g., jane.doe or system:masters">
+                         <input type="text" id="rbac-namespace-filter" placeholder="Namespace (required for SA)" style="display:none;">
+                         <button id="rbac-search-btn" class="action-button">Search</button>
+                     </div>
+                     <div id="rbac-results-container" style="margin-top: 1.5rem;"></div>
+                 </div>
+            </div>
         </div>
 
         <!-- Compute Tab -->
@@ -314,6 +441,29 @@
             </div>
         </div>
     </div>
+
+    <!-- Log Streaming Modal -->
+    <div id="log-modal" class="modal-backdrop" onclick="closeLogStream()">
+        <div class="modal-content log-modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="log-modal-title">Pod Logs</h3>
+                <button class="close-button" onclick="closeLogStream()">×</button>
+            </div>
+            <div id="log-terminal-container"></div>
+        </div>
+    </div>
+    
+    <!-- Vulnerability Details Modal -->
+    <div id="vuln-modal" class="modal-backdrop" onclick="this.style.display='none'">
+        <div class="modal-content" style="width: 80%; max-width: 1000px;" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="vuln-modal-title">Vulnerability Details</h3>
+                <button class="close-button" onclick="document.getElementById('vuln-modal').style.display='none'">×</button>
+            </div>
+            <div class="modal-body" id="vuln-modal-body"></div>
+        </div>
+    </div>
+
     {% endif %}
 {% endblock %}
 
@@ -325,7 +475,7 @@
         region: '{{ cluster.region }}',
         name: '{{ cluster.name }}'
     };
-    const workloadsData = {{ cluster.workloads | tojson | safe if cluster.workloads else 'null' }};
+    const k8sData = {{ cluster.k8s_data | tojson | safe if cluster.k8s_data and not cluster.k8s_data.error else 'null' }};
     
     // --- Page State Variables ---
     let workloadGraphRendered = false;
@@ -334,9 +484,24 @@
     let metricCharts = {};
     let metricsLoaded = false;
     let originalNodeStyles = {};
+    let logStreamSocket = null;
+    let xterm = null;
+    let fitAddon = null;
+    let eventStreamSocket = null;
 
     // --- Tab Switching Logic ---
     function openTab(evt, tabName) {
+        if (eventStreamSocket && activeTab === 'events' && tabName !== 'events') {
+            console.log('Closing event stream due to tab switch.');
+            eventStreamSocket.close();
+            eventStreamSocket = null;
+            const statusEl = document.getElementById('event-stream-status');
+            if (statusEl) {
+                statusEl.textContent = 'Paused';
+                statusEl.className = 'status-badge status-unknown';
+            }
+        }
+
         activeTab = tabName;
         document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
         document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
@@ -349,6 +514,10 @@
             workloadGraphRendered = true;
         } else if (tabName === 'observability' && !metricsLoaded) {
             loadMetrics();
+        } else if (tabName === 'events' && !eventStreamSocket) {
+            startEventStream();
+        } else if (tabName === 'security') {
+            setupRbacExplorer();
         }
         feather.replace();
     }
@@ -356,18 +525,18 @@
     // --- Workload Graph ---
     function renderWorkloadGraph() {
         const container = document.getElementById('workload-graph');
-        if (!workloadsData || workloadsData.error || !workloadsData.map_nodes) {
+        if (!k8sData || k8sData.error || !k8sData.map_nodes) {
             container.innerHTML = '<p class="text-muted" style="text-align:center; padding: 50px;">Could not render workload graph. Data is unavailable.</p>';
             return;
         }
 
-        const nodes = workloadsData.map_nodes.map(n => {
+        const nodes = k8sData.map_nodes.map(n => {
             originalNodeStyles[n.id] = { group: n.group }; // Store original group for color reset
             return n;
         });
 
         visNodes = new vis.DataSet(nodes);
-        visEdges = new vis.DataSet(workloadsData.map_edges);
+        visEdges = new vis.DataSet(k8sData.map_edges);
         const data = { nodes: visNodes, edges: visEdges };
         const options = {
             nodes: { shape: 'dot', size: 18, font: { size: 14, color: 'var(--text-secondary)' }, borderWidth: 2, },
@@ -408,7 +577,7 @@
                 resetHighlightAndPanel();
                 return;
             }
-            const foundNode = workloadsData.map_nodes.find(n => n.label.toLowerCase().includes(searchTerm));
+            const foundNode = k8sData.map_nodes.find(n => n.label.toLowerCase().includes(searchTerm));
             if (foundNode) {
                 visNetwork.focus(foundNode.id, { scale: 1.2, animation: true });
                 populateInfoPanel(foundNode.details);
@@ -457,7 +626,7 @@
             } else {
                  node.color = null; // Revert to group color
                  node.font = { color: 'var(--text-secondary)' };
-                 node.label = workloadsData.map_nodes.find(n => n.id === id).label;
+                 node.label = k8sData.map_nodes.find(n => n.id === id).label;
             }
             nodesToUpdate.push(node);
         }
@@ -481,7 +650,7 @@
         document.getElementById('graph-info-panel').classList.remove('visible');
         
         const nodesToUpdate = visNodes.get().map(node => {
-            return { id: node.id, color: null, font: { color: 'var(--text-secondary)' }, label: workloadsData.map_nodes.find(n => n.id === node.id).label };
+            return { id: node.id, color: null, font: { color: 'var(--text-secondary)' }, label: k8sData.map_nodes.find(n => n.id === node.id).label };
         });
         visNodes.update(nodesToUpdate);
         
@@ -496,10 +665,10 @@
     
     // --- Pod Filtering ---
     function setupPodFilters() {
-        if (!workloadsData || !workloadsData.pods) return;
+        if (!k8sData || !k8sData.pods) return;
 
         const namespaceSelect = document.getElementById('pod-namespace-filter');
-        const uniqueNamespaces = [...new Set(workloadsData.pods.map(p => p.metadata.namespace))].sort();
+        const uniqueNamespaces = [...new Set(k8sData.pods.map(p => p.metadata.namespace))].sort();
         namespaceSelect.innerHTML = '<option value="all">All Namespaces</option>' + uniqueNamespaces.map(ns => `<option value="${ns}">${ns}</option>`).join('');
 
         const nameFilter = document.getElementById('pod-name-filter');
@@ -530,6 +699,201 @@
         });
     }
 
+    // --- NEW: Log Streaming ---
+    function openLogStream(namespace, podName) {
+        const modal = document.getElementById('log-modal');
+        document.getElementById('log-modal-title').textContent = `Logs: ${namespace}/${podName}`;
+        modal.style.display = 'flex';
+
+        if (!xterm) {
+            xterm = new Terminal({ convertEol: true, theme: { background: '#1e1e1e', foreground: '#cccccc' }, scrollback: 1000 });
+            fitAddon = new FitAddon.FitAddon();
+            xterm.loadAddon(fitAddon);
+            xterm.open(document.getElementById('log-terminal-container'));
+        }
+        
+        setTimeout(() => fitAddon.fit(), 10); // Fit after modal is rendered
+        xterm.reset();
+        xterm.writeln(`\x1b[1;36mConnecting to log stream for ${podName}...\x1b[0m`);
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}/${namespace}/${podName}`;
+        
+        logStreamSocket = new WebSocket(wsUrl);
+        logStreamSocket.onopen = () => xterm.writeln('\n\x1b[1;32mConnection established. Tailing logs...\x1b[0m\n');
+        logStreamSocket.onmessage = (event) => xterm.write(event.data);
+        logStreamSocket.onerror = (error) => xterm.writeln(`\n\x1b[1;31mWebSocket Error. See browser console for details.\x1b[0m`);
+        logStreamSocket.onclose = () => xterm.writeln('\n\x1b[1;33mLog stream closed.\x1b[0m');
+    }
+
+    function closeLogStream() {
+        if (logStreamSocket) logStreamSocket.close();
+        document.getElementById('log-modal').style.display = 'none';
+    }
+
+    // --- NEW: Vulnerability Details ---
+    function showVulnDetails(vulnData, podName) {
+        const modal = document.getElementById('vuln-modal');
+        const body = document.getElementById('vuln-modal-body');
+        document.getElementById('vuln-modal-title').textContent = `Vulnerabilities for ${podName}`;
+        
+        let html = '';
+        for (const [image, data] of Object.entries(vulnData)) {
+            html += `<h4>Image: <span class="code">${image}</span></h4>`;
+            if (data.status === 'COMPLETE' && data.findings && data.findings.length > 0) {
+                 html += `<div class="table-container" style="max-height: 400px; overflow-y: auto;"><table class="data-table vuln-table">
+                            <thead><tr><th>Severity</th><th>CVE</th><th>Description</th><th>Score</th><th>URI</th></tr></thead><tbody>`;
+                data.findings.sort((a,b) => {
+                    const order = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'INFORMATIONAL': 4, 'UNDEFINED': 5};
+                    return (order[a.severity] ?? 99) - (order[b.severity] ?? 99);
+                }).forEach(v => {
+                    html += `<tr>
+                        <td><span class="vuln-badge" data-severity="${v.severity}">${v.severity}</span></td>
+                        <td>${v.name}</td>
+                        <td style="white-space: normal; min-width: 300px;">${v.description || ''}</td>
+                        <td>${v.score || 'N/A'}</td>
+                        <td><a href="${v.uri}" target="_blank" rel="noopener noreferrer">Link</a></td>
+                    </tr>`;
+                });
+                 html += `</tbody></table></div>`;
+            } else {
+                html += `<p class="text-muted">Scan status: ${data.status || 'N/A'}. No findings to display.</p>`;
+            }
+        }
+        body.innerHTML = html;
+        modal.style.display = 'flex';
+    }
+
+    // --- NEW: Event Streaming ---
+    function startEventStream() {
+        const statusEl = document.getElementById('event-stream-status');
+        statusEl.textContent = 'Connecting...';
+        statusEl.className = 'status-badge status-updating';
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws/events/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}`;
+        
+        eventStreamSocket = new WebSocket(wsUrl);
+        
+        eventStreamSocket.onopen = () => {
+            statusEl.textContent = 'Live';
+            statusEl.className = 'status-badge status-active';
+        };
+        
+        eventStreamSocket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'ERROR') {
+                console.error('Event stream error:', data.message);
+                statusEl.textContent = 'Error';
+                statusEl.className = 'status-badge status-failed';
+                eventStreamSocket.close();
+                return;
+            }
+            if (data.type !== 'ADDED') return;
+
+            const eventObj = data.object;
+            const tableBody = document.getElementById('events-table-body');
+            const newRow = document.createElement('tr');
+            newRow.className = `event-row-${eventObj.type}`;
+            const lastSeen = new Date(eventObj.lastTimestamp || eventObj.eventTime).toLocaleString();
+            const badgeClass = eventObj.type === 'Warning' ? 'status-updating' : 'active';
+            newRow.innerHTML = `
+                <td>${lastSeen}</td>
+                <td><span class="status-badge status-${badgeClass}">${eventObj.type}</span></td>
+                <td>${eventObj.reason}</td>
+                <td>${eventObj.involvedObject.kind}/${eventObj.involvedObject.name}</td>
+                <td style="white-space: normal; min-width: 400px;">${eventObj.message}</td>
+            `;
+            tableBody.prepend(newRow);
+            while (tableBody.rows.length > 200) {
+                tableBody.deleteRow(tableBody.rows.length - 1);
+            }
+        };
+
+        eventStreamSocket.onclose = () => {
+            console.log('Event stream closed.');
+            if (activeTab === 'events') {
+                statusEl.textContent = 'Disconnected';
+                statusEl.className = 'status-badge status-failed';
+            }
+        };
+    }
+    
+    // --- NEW: RBAC Explorer ---
+    function setupRbacExplorer() {
+        document.getElementById('rbac-kind-filter').addEventListener('change', (e) => {
+            document.getElementById('rbac-namespace-filter').style.display = e.target.value === 'ServiceAccount' ? 'block' : 'none';
+        });
+        document.getElementById('rbac-search-btn').addEventListener('click', performRbacSearch);
+    }
+
+    function performRbacSearch() {
+        if (!k8sData || !k8sData.roles) {
+             document.getElementById('rbac-results-container').innerHTML = `<p class="error-message">RBAC data not available.</p>`;
+             return;
+        }
+
+        const kind = document.getElementById('rbac-kind-filter').value;
+        const name = document.getElementById('rbac-name-filter').value.trim();
+        const namespace = document.getElementById('rbac-namespace-filter').value.trim();
+        const resultsContainer = document.getElementById('rbac-results-container');
+
+        if (!name || (kind === 'ServiceAccount' && !namespace)) {
+            resultsContainer.innerHTML = `<p class="text-muted">Please enter a name (and namespace for ServiceAccount) to search.</p>`;
+            return;
+        }
+
+        const subject = { kind, name, namespace: kind === 'ServiceAccount' ? namespace : undefined };
+        let bindings = [];
+        
+        const allBindings = (k8sData.rolebindings || []).concat(k8sData.clusterrolebindings || []);
+        
+        allBindings.forEach(b => {
+            const type = b.kind;
+            b.subjects?.forEach(s => {
+                let match = s.kind === subject.kind && s.name === subject.name;
+                if (match && s.kind === 'ServiceAccount' && b.metadata.namespace) {
+                    match = s.namespace === subject.namespace || s.namespace === undefined; // Some bindings might not specify the SA namespace
+                } else if (match && s.kind === 'ServiceAccount' && !b.metadata.namespace) { // ClusterRoleBinding
+                    match = s.namespace === subject.namespace;
+                }
+                if(match) {
+                    bindings.push({binding: b, type: type});
+                }
+            });
+        });
+
+        let html = `<h4>Permissions for ${kind}: ${name} ${subject.namespace ? `in ns/${subject.namespace}`: ''}</h4>`;
+        if (bindings.length === 0) {
+            html += '<p class="text-muted">No direct role bindings found for this subject.</p>';
+        } else {
+             bindings.forEach(b => {
+                const roleRef = b.binding.roleRef;
+                const bindingMeta = b.binding.metadata;
+                html += `<div class="health-issue-box">
+                    <strong>${roleRef.kind}: ${roleRef.name}</strong> 
+                    <span class="text-secondary">(via ${b.type}: ${bindingMeta.name} ${bindingMeta.namespace ? `in ns/${bindingMeta.namespace}` : '(cluster-wide)'})</span>
+                    <ul style="font-size: 0.9em; margin-top: 0.5rem;">`;
+                
+                const roleList = roleRef.kind === 'Role' ? k8sData.roles : k8sData.clusterroles;
+                const role = roleList.find(r => r.metadata.name === roleRef.name && (roleRef.kind === 'ClusterRole' || r.metadata.namespace === bindingMeta.namespace));
+                
+                if (role && role.rules) {
+                    role.rules.forEach(rule => {
+                        const resources = `<strong>${rule.resources?.join(', ') || 'all'}</strong>`;
+                        const verbs = `<strong>${rule.verbs.join(', ')}</strong>`;
+                        const apiGroups = `<strong>${rule.apiGroups?.join(', ') || "'core'"}</strong>`;
+                        html += `<li>Can ${verbs} on resources ${resources} in API groups ${apiGroups}.</li>`;
+                    });
+                } else {
+                    html += `<li>Could not find definition for role ${roleRef.name}</li>`;
+                }
+
+                html += `</ul></div>`;
+            });
+        }
+        resultsContainer.innerHTML = html;
+    }
 
     // --- Metrics and Charting Functions ---
     function getChartBaseOptions(stacked = false) {
@@ -679,6 +1043,12 @@
                     btn.disabled = false;
                 }
             });
+        });
+
+        window.addEventListener('resize', () => {
+            if (fitAddon) {
+                fitAddon.fit();
+            }
         });
     });
 </script>

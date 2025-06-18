@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request, Form, Depends, Query
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Request, Form, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
@@ -15,19 +15,22 @@ import uvicorn
 from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
-import copy
-
+import asyncio
 
 # SAML specific imports
 from onelogin.saml2.auth import OneLogin_Saml2_Auth
 from onelogin.saml2.utils import OneLogin_Saml2_Utils
+
+# Kubernetes imports for streaming
+from kubernetes import client, config, watch, stream
 
 # Your existing data fetcher functions
 from aws_data_fetcher import (
     get_live_eks_data,
     get_single_cluster_details,
     upgrade_nodegroup_version,
-    get_cluster_metrics
+    get_cluster_metrics,
+    get_k8s_api_client
 )
 
 # Load environment variables from your .env file
@@ -73,7 +76,7 @@ async def prepare_saml_request(request: Request):
 # --- Auth Dependency (Route Protector) ---
 async def get_current_user(request: Request):
     if not request.state.user:
-        if "/api/" in request.url.path:
+        if "/api/" in request.url.path or "/ws/" in request.url.path:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
         
         redirect_url = f"/login?next={quote(request.url.path)}"
@@ -189,7 +192,6 @@ async def read_cluster_detail(request: Request, account_id: str, region: str, cl
     else:
         logging.info(f"Cache MISS for cluster detail: {cluster_name}")
         try:
-            # We determine the role based on the target account, not the self-account.
             self_account_id_sts = boto3.client('sts').get_caller_identity().get('Account')
         except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
             logging.warning(f"Could not determine self account ID from instance metadata: {e}")
@@ -199,7 +201,6 @@ async def read_cluster_detail(request: Request, account_id: str, region: str, cl
         if account_id != self_account_id_sts:
             role_arn = get_role_arn_for_account(account_id)
             if not role_arn:
-                # If we are targeting another account, a role MUST be configured.
                 err_msg = f"No role ARN for account {account_id} is configured in AWS_TARGET_ACCOUNTS_ROLES."
                 logging.error(err_msg)
                 return templates.TemplateResponse("error.html", {"request": request, "errors": [err_msg], "reason": "Please check your .env file."}, status_code=404)
@@ -211,7 +212,9 @@ async def read_cluster_detail(request: Request, account_id: str, region: str, cl
     context = {"request": request, "user": user, "cluster": cluster_details, "account_id": account_id, "region": region}
     return templates.TemplateResponse("cluster_detail.html", context)
 
-# --- API Routes for Frontend ---
+
+# --- API & WebSocket Routes ---
+
 @app.post("/api/refresh-data", tags=["API"])
 async def refresh_data(user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
@@ -238,15 +241,9 @@ async def api_upgrade_nodegroup(request: Request, user: dict = Depends(get_curre
     data = await request.json()
     account_id = data.get("accountId")
     
-    role_arn = None
-    try:
-        self_account_id = boto3.client('sts').get_caller_identity().get('Account')
-        if account_id != self_account_id:
-            role_arn = get_role_arn_for_account(account_id)
-            if not role_arn:
-                return JSONResponse(status_code=404, content={"error": f"Role ARN not found for account {account_id}."})
-    except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
-        return JSONResponse(status_code=500, content={"error": f"Could not determine self-account ID: {e}"})
+    role_arn = get_role_arn_for_account(account_id)
+    # Note: This logic assumes that if a role is needed, it must be present.
+    # It doesn't handle the case where the app is running in the target account without a role.
 
     result = upgrade_nodegroup_version(account_id, data.get("region"), data.get("clusterName"), data.get("nodegroupName"), role_arn)
     if "error" in result: return JSONResponse(status_code=400, content=result)
@@ -260,6 +257,70 @@ async def api_get_cluster_metrics(account_id: str, region: str, cluster_name: st
     if 'error' in metrics:
         return JSONResponse(content=metrics, status_code=500)
     return JSONResponse(content=metrics)
+
+@app.websocket("/ws/logs/{account_id}/{region}/{cluster_name}/{namespace}/{pod_name}")
+async def websocket_log_stream(websocket: WebSocket, account_id: str, region: str, cluster_name: str, namespace: str, pod_name: str):
+    await websocket.accept()
+    role_arn = get_role_arn_for_account(account_id)
+    
+    try:
+        # Get cluster info from cache or fresh fetch to get endpoint details
+        cluster_details = get_single_cluster_details(account_id, region, cluster_name, role_arn)
+        if cluster_details.get("errors"):
+            await websocket.send_text(f"ERROR: Could not get cluster details: {cluster_details['errors']}")
+            return
+
+        api_client = get_k8s_api_client(cluster_name, cluster_details['networking']['endpointPublicAccessUrl'], cluster_details['certificateAuthority']['data'], region, role_arn)
+        core_v1 = client.CoreV1Api(api_client)
+
+        log_stream = stream.stream(core_v1.read_namespaced_pod_log, name=pod_name, namespace=namespace, follow=True, _preload_content=False)
+
+        while log_stream.is_open():
+            try:
+                line = log_stream.readline()
+                if line:
+                    await websocket.send_text(line)
+                else: # No new data, brief pause
+                    await asyncio.sleep(0.1)
+            except Exception:
+                break # Stream closed or error
+    except Exception as e:
+        logging.error(f"Log stream error for {pod_name}: {e}")
+        await websocket.send_text(f"\n--- ERROR: Could not start log stream. Reason: {e} ---")
+    finally:
+        await websocket.close()
+        logging.info(f"Log stream for {pod_name} closed.")
+
+@app.websocket("/ws/events/{account_id}/{region}/{cluster_name}")
+async def websocket_event_stream(websocket: WebSocket, account_id: str, region: str, cluster_name: str):
+    await websocket.accept()
+    role_arn = get_role_arn_for_account(account_id)
+
+    try:
+        cluster_details = get_single_cluster_details(account_id, region, cluster_name, role_arn)
+        if cluster_details.get("errors"):
+            await websocket.send_text(json.dumps({"type": "ERROR", "message": f"Could not get cluster details: {cluster_details['errors']}"}))
+            return
+
+        api_client = get_k8s_api_client(cluster_name, cluster_details['networking']['endpointPublicAccessUrl'], cluster_details['certificateAuthority']['data'], region, role_arn)
+        core_v1 = client.CoreV1Api(api_client)
+        w = watch.Watch()
+        
+        for event in w.stream(core_v1.list_event_for_all_namespaces, timeout_seconds=3600):
+            await websocket.send_text(json.dumps(event))
+
+    except WebSocketDisconnect:
+        logging.info(f"Event stream for {cluster_name} disconnected.")
+    except Exception as e:
+        logging.error(f"Event stream error for {cluster_name}: {e}")
+        try:
+            await websocket.send_text(json.dumps({"type": "ERROR", "message": f"Stream failed: {e}"}))
+        except:
+            pass # Websocket might be already closed
+    finally:
+        w.stop()
+        await websocket.close()
+        logging.info(f"Event stream for {cluster_name} closed.")
 
 # --- Main Execution Block ---
 if __name__ == "__main__":

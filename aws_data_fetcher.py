@@ -6,6 +6,7 @@ import json
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import re
 
 # Kubernetes Imports
 from kubernetes import client, config
@@ -74,7 +75,7 @@ def get_k8s_api_client(cluster_name, cluster_endpoint, cluster_ca_data, region, 
     return client.ApiClient(configuration=cfg)
 
 
-# --- Detailed AWS Fetcher Functions ---
+# --- Detailed AWS & K8s Fetcher Functions ---
 def fetch_managed_nodegroups(eks_client, cluster_name):
     nodegroups_details = []
     try:
@@ -98,77 +99,137 @@ def fetch_karpenter_nodes_for_cluster(core_v1_api):
         nodes = core_v1_api.list_node(timeout_seconds=30).items
         for node in nodes:
             labels = node.metadata.labels or {}
-            # Identifies nodes managed by Karpenter or EKS Pod Identity/IRSA on EC2 (typical for auto-mode)
+            # Identifies nodes managed by Karpenter or unmanaged nodes (typical for cluster-autoscaler)
             if 'karpenter.sh/provisioner-name' in labels or labels.get('eks.amazonaws.com/compute-type') == 'ec2':
                 karpenter_nodes.append({
                     "name": node.metadata.name,
                     "status": "Ready" if any(c.status == 'True' for c in node.status.conditions if c.type == 'Ready') else "NotReady",
-                    "desiredSize": 1,
-                    "instanceTypes": [labels.get('node.kubernetes.io/instance-type', 'unknown')],
-                    "amiType": "AUTO-MODE", # A custom identifier for the UI
-                    "version": node.status.node_info.kubelet_version,
-                    "releaseVersion": "N/A", # Not applicable for unmanaged nodes
-                    "createdAt": node.metadata.creation_timestamp,
-                    "is_karpenter_node": True
+                    "desiredSize": 1, "instanceTypes": [labels.get('node.kubernetes.io/instance-type', 'unknown')],
+                    "amiType": "AUTO-MODE", "version": node.status.node_info.kubelet_version,
+                    "releaseVersion": "N/A", "createdAt": node.metadata.creation_timestamp, "is_karpenter_node": True
                 })
         logging.info(f"Found {len(karpenter_nodes)} Karpenter/Auto-Mode nodes.")
     except Exception as e:
         logging.error(f"ERROR fetching Kubernetes API nodes for Karpenter: {e}")
     return karpenter_nodes
 
+def fetch_ecr_vulnerabilities(region, image_uris, role_arn=None):
+    """Fetches vulnerability scan findings for a list of ECR image URIs."""
+    session = get_session(role_arn)
+    if not session: return {"error": "Failed to get session for vulnerability scan."}
+    
+    # ECR clients need to be created for the region the repository is in.
+    # We assume all images are in the same region as the cluster for simplicity.
+    # A more robust solution would parse the region from the image URI and manage multiple clients.
+    ecr_client = session.client('ecr', region_name=region)
+    
+    scan_results = {}
+    ecr_image_pattern = re.compile(r"^(?P<aws_account_id>\d{12})\.dkr\.ecr\.(?P<aws_region>[a-z0-9-]+)\.amazonaws\.com\/(?P<repository_name>[\w\d._/-]+)(?::(?P<image_tag>[\w\d_.-]+)|@(?P<image_digest>sha256:[a-f0-9]{64}))$")
 
-def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca, region, role_arn=None):
-    """Fetches detailed workload info using the kubernetes-python client for reliability."""
+    for uri in image_uris:
+        match = ecr_image_pattern.match(uri)
+        if not match:
+            scan_results[uri] = {"status": "NOT_ECR_IMAGE"}
+            continue
+
+        parts = match.groupdict()
+        image_identifier = {}
+        if parts.get('image_digest'):
+            image_identifier['imageDigest'] = parts['image_digest']
+        else:
+            image_identifier['imageTag'] = parts.get('image_tag', 'latest')
+
+        try:
+            findings = ecr_client.describe_image_scan_findings(
+                repositoryName=parts['repository_name'],
+                imageId=image_identifier
+            )
+            scan_results[uri] = {
+                "status": findings.get('imageScanStatus', {}).get('status', 'UNKNOWN'),
+                "summary": findings.get('imageScanFindingsSummary', {}).get('findingSeverityCounts', {}),
+                "scanCompletedAt": findings.get('imageScanFindings', {}).get('imageScanCompletedAt')
+            }
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ScanNotFoundException':
+                scan_results[uri] = {"status": "NOT_SCANNED", "summary": {}}
+            else:
+                logging.error(f"Error fetching ECR scan for {uri}: {e}")
+                scan_results[uri] = {"status": "ERROR", "error": str(e)}
+
+    return scan_results
+
+def get_kubernetes_cluster_objects(cluster_name, cluster_endpoint, cluster_ca, region, role_arn=None):
+    """Fetches a wide range of Kubernetes objects and ECR vulnerabilities for a given cluster."""
     logging.info(f"Fetching full Kubernetes object map for {cluster_name}...")
-    k8s_data = {"pods": [], "services": [], "ingresses": [], "nodes": [], "deployments": [], "map_nodes": [], "map_edges": [], "error": None}
+    k8s_data = {
+        "pods": [], "services": [], "ingresses": [], "nodes": [], "deployments": [], 
+        "events": [], "roles": [], "clusterroles": [], "rolebindings": [], "clusterrolebindings": [],
+        "map_nodes": [], "map_edges": [], "error": None
+    }
 
     try:
         api_client = get_k8s_api_client(cluster_name, cluster_endpoint, cluster_ca, region, role_arn)
         core_v1 = client.CoreV1Api(api_client)
         apps_v1 = client.AppsV1Api(api_client)
         networking_v1 = client.NetworkingV1Api(api_client)
+        rbac_v1 = client.RbacAuthorizationV1Api(api_client)
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=8) as executor:
             future_pods = executor.submit(core_v1.list_pod_for_all_namespaces, timeout_seconds=120)
             future_svcs = executor.submit(core_v1.list_service_for_all_namespaces, timeout_seconds=60)
             future_ings = executor.submit(networking_v1.list_ingress_for_all_namespaces, timeout_seconds=60)
             future_nodes = executor.submit(core_v1.list_node, timeout_seconds=60)
             future_deps = executor.submit(apps_v1.list_deployment_for_all_namespaces, timeout_seconds=60)
+            future_events = executor.submit(core_v1.list_event_for_all_namespaces, limit=250, timeout_seconds=60)
+            future_roles = executor.submit(rbac_v1.list_role_for_all_namespaces, timeout_seconds=60)
+            future_clusterroles = executor.submit(rbac_v1.list_cluster_role, timeout_seconds=60)
+            future_rolebindings = executor.submit(rbac_v1.list_role_binding_for_all_namespaces, timeout_seconds=60)
+            future_clusterrolebindings = executor.submit(rbac_v1.list_cluster_role_binding, timeout_seconds=60)
 
             k8s_data["pods"] = [api_client.sanitize_for_serialization(p) for p in future_pods.result().items]
             k8s_data["services"] = [api_client.sanitize_for_serialization(s) for s in future_svcs.result().items]
             k8s_data["ingresses"] = [api_client.sanitize_for_serialization(i) for i in future_ings.result().items]
             k8s_data["nodes"] = [api_client.sanitize_for_serialization(n) for n in future_nodes.result().items]
             k8s_data["deployments"] = [api_client.sanitize_for_serialization(d) for d in future_deps.result().items]
+            k8s_data["events"] = sorted([api_client.sanitize_for_serialization(e) for e in future_events.result().items], key=lambda x: x.get('lastTimestamp') or x.get('eventTime'), reverse=True)
+            k8s_data["roles"] = [api_client.sanitize_for_serialization(r) for r in future_roles.result().items]
+            k8s_data["clusterroles"] = [api_client.sanitize_for_serialization(cr) for cr in future_clusterroles.result().items]
+            k8s_data["rolebindings"] = [api_client.sanitize_for_serialization(rb) for rb in future_rolebindings.result().items]
+            k8s_data["clusterrolebindings"] = [api_client.sanitize_for_serialization(crb) for crb in future_clusterrolebindings.result().items]
 
-        map_nodes, map_edges = [], []
         now = datetime.now(timezone.utc)
-
-        # Process Ingresses
-        for ing in k8s_data["ingresses"]:
-            details = { "kind": "Ingress", "name": ing["metadata"]["name"], "namespace": ing["metadata"]["namespace"], "class": ing["spec"].get("ingressClassName", "N/A"), "hosts": [rule.get("host") for rule in ing.get("spec", {}).get("rules", [])], "created": ing['metadata']['creationTimestamp']}
-            map_nodes.append({"id": ing["metadata"]["uid"], "label": ing["metadata"]["name"], "group": "ingress", "title": f"Ingress: {details['name']}<br>Namespace: {details['namespace']}", "details": details})
-            for rule in ing.get("spec", {}).get("rules", []):
-                for path in rule.get("http", {}).get("paths", []):
-                    svc_name = path["backend"]["service"]["name"]
-                    for svc in k8s_data["services"]:
-                        if svc["metadata"]["name"] == svc_name and svc["metadata"]["namespace"] == ing["metadata"]["namespace"]:
-                            map_edges.append({"from": ing["metadata"]["uid"], "to": svc["metadata"]["uid"], "arrows": "to"}); break
-
-        # Process Services
-        for svc in k8s_data["services"]:
-            details = {"kind": "Service", "name": svc["metadata"]["name"], "namespace": svc["metadata"]["namespace"], "type": svc["spec"]["type"], "cluster_ip": svc["spec"].get("clusterIP", "N/A"), "ports": [f"{p.get('name', '')} {p['port']}:{p['targetPort']}/{p['protocol']}" for p in svc["spec"].get("ports", [])], "selector": svc["spec"].get("selector"), "created": svc['metadata']['creationTimestamp']}
-            map_nodes.append({"id": svc["metadata"]["uid"], "label": svc["metadata"]["name"], "group": "svc", "title": f"Service: {details['name']}<br>Type: {details['type']}", "details": details})
-
-        # Process Pods
+        
+        # Step 1: Process Pods, calculate age, and collect ECR image URIs
+        ecr_image_uris = set()
         for pod in k8s_data["pods"]:
             creation_time = datetime.fromisoformat(pod['metadata']['creationTimestamp'].replace("Z", "+00:00"))
-            age_delta = now - creation_time
-            pod['age'] = str(age_delta).split('.')[0]
+            pod['age'] = str(now - creation_time).split('.')[0]
             pod['restarts'] = sum(cs.get('restartCount', 0) for cs in pod.get('status', {}).get('containerStatuses', []))
+            for container_status in pod.get('status', {}).get('containerStatuses', []):
+                if image_uri := container_status.get('image'):
+                    if 'dkr.ecr' in image_uri:
+                        ecr_image_uris.add(image_uri)
+        
+        # Step 2: Fetch vulnerabilities for all collected ECR images
+        vulnerability_results = fetch_ecr_vulnerabilities(region, list(ecr_image_uris), role_arn)
+
+        # Step 3: Build visualization map and attach vulnerability data to pods
+        map_nodes, map_edges = [], []
+
+        for pod in k8s_data["pods"]:
+            pod['vulnerabilities'] = {}
+            for cs in pod.get('status', {}).get('containerStatuses', []):
+                if (image_uri := cs.get('image')) and image_uri in vulnerability_results:
+                    pod['vulnerabilities'][image_uri] = vulnerability_results[image_uri]
+
             owner_ref = pod['metadata'].get('ownerReferences', [{}])[0]
-            controlled_by = f"{owner_ref.get('kind', 'N/A')}/{owner_ref.get('name', 'N/A')}"
-            details = {"kind": "Pod", "name": pod["metadata"]["name"], "namespace": pod["metadata"]["namespace"], "status": pod["status"]["phase"], "pod_ip": pod["status"].get("podIP", "N/A"), "node_name": pod["spec"].get("nodeName", "N/A"), "restarts": pod['restarts'], "age": pod['age'], "controlled_by": controlled_by, "created": pod['metadata']['creationTimestamp']}
+            details = {
+                "kind": "Pod", "name": pod["metadata"]["name"], "namespace": pod["metadata"]["namespace"], 
+                "status": pod["status"]["phase"], "pod_ip": pod["status"].get("podIP", "N/A"), 
+                "node_name": pod["spec"].get("nodeName", "N/A"), "restarts": pod['restarts'], 
+                "age": pod['age'], "controlled_by": f"{owner_ref.get('kind', 'N/A')}/{owner_ref.get('name', 'N/A')}",
+                "created": pod['metadata']['creationTimestamp'], "vulnerabilities": pod['vulnerabilities']
+            }
             map_nodes.append({"id": pod["metadata"]["uid"], "label": pod["metadata"]["name"], "group": "pod", "title": f"Pod: {details['name']}<br>Status: {details['status']}", "details": details})
             
             if pod["spec"].get("nodeName"):
@@ -183,7 +244,18 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
                     if selector and svc["metadata"]["namespace"] == pod["metadata"]["namespace"] and all(pod_labels.get(k) == v for k, v in selector.items()):
                         map_edges.append({"from": svc["metadata"]["uid"], "to": pod["metadata"]["uid"], "arrows": "to"})
 
-        # Process Nodes
+        for ing in k8s_data["ingresses"]:
+            details = { "kind": "Ingress", "name": ing["metadata"]["name"], "namespace": ing["metadata"]["namespace"], "class": ing["spec"].get("ingressClassName", "N/A"), "hosts": [rule.get("host") for rule in ing.get("spec", {}).get("rules", [])], "created": ing['metadata']['creationTimestamp']}
+            map_nodes.append({"id": ing["metadata"]["uid"], "label": ing["metadata"]["name"], "group": "ingress", "title": f"Ingress: {details['name']}<br>Namespace: {details['namespace']}", "details": details})
+            for rule in ing.get("spec", {}).get("rules", []):
+                for path in rule.get("http", {}).get("paths", []):
+                    if svc_name := path.get("backend", {}).get("service", {}).get("name"):
+                        for svc in k8s_data["services"]:
+                            if svc["metadata"]["name"] == svc_name and svc["metadata"]["namespace"] == ing["metadata"]["namespace"]:
+                                map_edges.append({"from": ing["metadata"]["uid"], "to": svc["metadata"]["uid"], "arrows": "to"}); break
+        for svc in k8s_data["services"]:
+            details = {"kind": "Service", "name": svc["metadata"]["name"], "namespace": svc["metadata"]["namespace"], "type": svc["spec"]["type"], "cluster_ip": svc["spec"].get("clusterIP", "N/A"), "ports": [f"{p.get('name', '')} {p['port']}:{p['targetPort']}/{p['protocol']}" for p in svc["spec"].get("ports", [])], "selector": svc["spec"].get("selector"), "created": svc['metadata']['creationTimestamp']}
+            map_nodes.append({"id": svc["metadata"]["uid"], "label": svc["metadata"]["name"], "group": "svc", "title": f"Service: {details['name']}<br>Type: {details['type']}", "details": details})
         for n in k8s_data["nodes"]:
             details = {"kind": "Node", "name": n["metadata"]["name"], "instance_type": n['metadata']['labels'].get('node.kubernetes.io/instance-type', 'N/A'), "os_image": n["status"]["nodeInfo"].get("osImage", "N/A"), "kernel_version": n["status"]["nodeInfo"].get("kernelVersion", "N/A"), "kubelet_version": n["status"]["nodeInfo"].get("kubeletVersion", "N/A"), "allocatable_cpu": n["status"].get("allocatable", {}).get("cpu", "N/A"), "allocatable_memory": n["status"].get("allocatable", {}).get("memory", "N/A"), "conditions": [{c['type']: c['status']} for c in n.get('status', {}).get('conditions', [])], "created": n['metadata']['creationTimestamp']}
             map_nodes.append({"id": n["metadata"]["uid"], "label": n["metadata"]["name"], "group": "node", "title": f"Node: {details['name']}<br>Type: {details['instance_type']}", "details": details})
@@ -191,16 +263,13 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
         k8s_data["map_nodes"], k8s_data["map_edges"] = map_nodes, map_edges
 
     except ApiException as e:
-        error_message = f"Kubernetes API Error: {e.reason} (Status: {e.status})"
-        k8s_data['error'] = error_message
+        k8s_data['error'] = f"Kubernetes API Error: {e.reason} (Status: {e.status})"
         logging.error(f"Error fetching k8s map for {cluster_name}: {e.body}")
     except Exception as e:
-        error_message = f"An unexpected error occurred connecting to Kubernetes: {str(e)}"
-        k8s_data['error'] = error_message
+        k8s_data['error'] = f"An unexpected error occurred connecting to Kubernetes: {str(e)}"
         logging.error(f"UNEXPECTED ERROR fetching k8s map for {cluster_name}: {e}", exc_info=True)
 
     return k8s_data
-
 
 def fetch_addons_for_cluster(eks_client, cluster_name):
     addons_details = []
@@ -250,20 +319,12 @@ def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
     metric_definitions = {
         "node_status_ready": ('node_status_ready', 'Average'), "container_restarts": ('pod_number_of_container_restarts', 'Sum'),
         "node_cpu_utilization": ('node_cpu_utilization', 'Average'), "node_memory_utilization": ('node_memory_utilization', 'Average'),
-        "node_network_rx_bytes": ('node_network_rx_bytes', 'Average'), "node_network_tx_bytes": ('node_network_tx_bytes', 'Average'),
         "node_filesystem_utilization": ('node_filesystem_utilization', 'Average'), "pod_cpu_utilization": ('pod_cpu_utilization', 'Average'),
-        "pod_memory_utilization": ('pod_memory_utilization', 'Average'), "pod_network_rx_bytes": ('pod_network_rx_bytes', 'Average'),
-        "pod_network_tx_bytes": ('pod_network_tx_bytes', 'Average'), "pod_status_running": ('pod_status_running', 'Average'),
-        "pod_status_pending": ('pod_status_pending', 'Average'), "pod_status_succeeded": ('pod_status_succeeded', 'Average'),
-        "pod_status_failed": ('pod_status_failed', 'Average'), "pod_status_unknown": ('pod_status_unknown', 'Average'),
+        "pod_memory_utilization": ('pod_memory_utilization', 'Average'), "pod_status_running": ('pod_status_running', 'Average'),
+        "pod_status_pending": ('pod_status_pending', 'Average'),
         "apiserver_request_total": ('apiserver_request_total', 'Sum'), "apiserver_request_latency_get": ('apiserver_request_latencies_GET', 'Average'),
         "apiserver_request_latency_list": ('apiserver_request_latencies_LIST', 'Average'), "apiserver_request_latency_post": ('apiserver_request_latencies_POST', 'Average'),
-        "apiserver_request_latency_put": ('apiserver_request_latencies_PUT', 'Average'), "apiserver_request_latency_delete": ('apiserver_request_latencies_DELETE', 'Average'),
-        "apiserver_storage_objects": ('apiserver_storage_objects', 'Average'), "apiserver_inflight_requests_mutating": ('apiserver_in_flight_requests_mutating', 'Average'),
-        "apiserver_inflight_requests_readonly": ('apiserver_in_flight_requests_read_only', 'Average'), "apiserver_request_total_5xx": ('apiserver_request_total_5XX', 'Sum'),
-        "apiserver_request_total_4xx": ('apiserver_request_total_4XX', 'Sum'), "scheduler_pending_pods": ('scheduler_pending_pods', 'Average'),
-        "scheduler_schedule_attempts_success": ('scheduler_schedule_attempts_SCHEDULED', 'Sum'), "scheduler_schedule_attempts_failure": ('scheduler_schedule_attempts_UNSCHEDULABLE', 'Sum'),
-        "scheduler_schedule_attempts_error": ('scheduler_schedule_attempts_ERROR', 'Sum'),
+        "scheduler_pending_pods": ('scheduler_pending_pods', 'Average'),
     }
 
     queries = [{
@@ -321,9 +382,8 @@ def _process_cluster_data(c_raw, with_details=False, detail_results=None):
         managed_nodegroups_raw = detail_results.get("nodegroups", [])
         karpenter_nodes_raw = []
         
-        cluster_data["workloads"] = detail_results.get("workloads", {"error": "Workload data not fetched."})
-        if not cluster_data["workloads"].get("error"):
-            # If workloads were fetched, we might have node info for Karpenter
+        cluster_data["k8s_data"] = detail_results.get("k8s_objects", {"error": "Kubernetes data not fetched."})
+        if not cluster_data["k8s_data"].get("error"):
             try:
                  api_client = get_k8s_api_client(c_raw["name"], c_raw["endpoint"], c_raw["certificateAuthority"]["data"], c_raw["region"], detail_results.get("role_arn"))
                  karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(client.CoreV1Api(api_client))
@@ -334,12 +394,9 @@ def _process_cluster_data(c_raw, with_details=False, detail_results=None):
         processed_nodegroups.extend(karpenter_nodes_raw)
         
         cluster_data.update({
-            "nodegroups_data": processed_nodegroups,
-            "addons": detail_results.get("addons", []),
-            "fargate_profiles": detail_results.get("fargate", []),
-            "security_insights": detail_results.get("security", {}),
-            "oidc_provider_url": fetch_oidc_provider_for_cluster(c_raw),
-            "networking": c_raw.get("resourcesVpcConfig", {}),
+            "nodegroups_data": processed_nodegroups, "addons": detail_results.get("addons", []),
+            "fargate_profiles": detail_results.get("fargate", []), "security_insights": detail_results.get("security", {}),
+            "oidc_provider_url": fetch_oidc_provider_for_cluster(c_raw), "networking": c_raw.get("resourcesVpcConfig", {}),
         })
 
     return cluster_data
@@ -367,28 +424,6 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
     if not accounts_to_scan and group_to_account_list:
         return {"clusters": [], "quick_info": {}, "errors": ["User has no access to any configured AWS accounts."]}
 
-    errors, cluster_locations = [], []
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        list_futures = []
-        for account in accounts_to_scan:
-            session = get_session(account.get('role_arn'))
-            if not session:
-                errors.append(f"Failed to create session for account {account['id']}.")
-                continue
-            for region in [r.strip() for r in os.getenv("AWS_REGIONS", "us-east-1").split(',') if r.strip()]:
-                eks_client = session.client('eks', region_name=region)
-                list_futures.append(executor.submit(eks_client.list_clusters))
-
-        for future in as_completed(list_futures):
-            try:
-                # This is complex because we need to trace back which account/region the result is from.
-                # A more robust solution would wrap the submit call in a way that preserves context.
-                # For now, we rely on the describe call to get the full ARN.
-                pass # This part is tricky. A simpler model is to describe immediately.
-            except Exception as e:
-                 errors.append(f"Error listing clusters: {e}")
-    
-    # Simplified, more robust concurrent model
     all_clusters_raw, errors = [], []
     with ThreadPoolExecutor(max_workers=30) as executor:
         describe_futures = {}
@@ -447,9 +482,9 @@ def get_single_cluster_details(account_id, region, cluster_name, role_arn=None):
             future_map[executor.submit(get_security_insights, cluster_raw, eks_client)] = "security"
             
             if cluster_raw.get("endpoint") and cluster_raw.get("certificateAuthority", {}).get("data"):
-                future_map[executor.submit(get_kubernetes_workloads_and_map, cluster_name, cluster_raw["endpoint"], cluster_raw["certificateAuthority"]["data"], region, role_arn)] = "workloads"
+                future_map[executor.submit(get_kubernetes_cluster_objects, cluster_name, cluster_raw["endpoint"], cluster_raw["certificateAuthority"]["data"], region, role_arn)] = "k8s_objects"
             else:
-                detail_results["workloads"] = {"error": "Cluster endpoint or certificate authority data is not available."}
+                detail_results["k8s_objects"] = {"error": "Cluster endpoint or certificate authority data is not available."}
 
             for future in as_completed(future_map):
                 key = future_map[future]
