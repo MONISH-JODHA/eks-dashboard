@@ -1,4 +1,3 @@
-
 :root {
     --bg-color: #F8F9FA; /* Very light grey */
     --surface-color: #FFFFFF; /* White */
@@ -93,57 +92,6 @@ body {
     height: 20px;
 }
 
-.sidebar-filters {
-    margin-top: 2rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--border-color);
-}
-.filter-group .filter-title {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-    margin: 0 0 1.5rem 0.25rem;
-}
-.filter-group label {
-    display: block;
-    font-size: 0.9rem;
-    margin-bottom: 0.5rem;
-    color: var(--text-secondary);
-    padding-left: 0.25rem;
-}
-.filter-group select {
-    width: 100%;
-    padding: 0.6rem;
-    background-color: var(--surface-color);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-primary);
-    margin-bottom: 1.25rem;
-    cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-.filter-group select:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
-}
-#reset-filters-btn {
-    width: 100%;
-    padding: 0.75rem;
-    background-color: var(--surface-color);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 500;
-    transition: background-color 0.2s;
-}
-#reset-filters-btn:hover {
-    background-color: var(--bg-color);
-}
-.sidebar-footer { display: none; } /* Moved to header */
-
 /* --- Main Content Area --- */
 .main-content {
     flex-grow: 1;
@@ -228,16 +176,6 @@ body {
     gap: 1.5rem;
     border: 1px solid var(--border-color);
     transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
-}
-.info-box.clickable-filter { cursor: pointer; }
-.info-box.clickable-filter:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--box-shadow);
-    border-color: var(--primary-color);
-}
-.info-box.active-filter {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
 }
 .info-box .icon-bg {
     flex-shrink: 0;
@@ -529,14 +467,6 @@ body {
 }
 .export-btn i, .header-actions .action-btn i { width: 16px; height: 16px; }
 
-.clickable-row { cursor: pointer; }
-.clickable-row .row-arrow {
-    width: 16px; height: 16px; opacity: 0;
-    transition: opacity 0.2s, transform 0.2s;
-    vertical-align: middle; margin-left: 0.5rem;
-}
-.clickable-row:hover .row-arrow { opacity: 1; transform: translateX(3px); }
-
 .tags-container { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .tag {
     background-color: var(--bg-color);
@@ -725,51 +655,10 @@ body {
     background-color: var(--surface-color); border: 1px solid var(--border-color);
     border-radius: var(--border-radius); box-shadow: var(--box-shadow);
 }
-.severity-badge { color: white; }
+.severity-badge { color: white; padding: 0.25em 0.6em; border-radius: 1em; font-size: 0.8em; }
 .severity-high { background-color: #DC3545; }
 .severity-medium { background-color: #FD7E14; }
 .severity-low { background-color: #FFC107; color: var(--text-primary);}
-
-/* Cost & Time Machine */
-.cost-grid { grid-template-columns: 1fr 1fr; }
-.what-if-form select, .what-if-form input {
-    background-color: var(--surface-color); border: 1px solid var(--border-color); color: var(--text-primary);
-}
-#what-if-results {
-    border: 1px solid var(--border-color); background-color: var(--bg-color);
-}
-.snapshot-list li {
-    background-color: var(--bg-color); border: 1px solid var(--border-color);
-}
-.snapshot-diff-selector {
-    flex-wrap: wrap;
-}
-.diff-card {
-    background-color: var(--bg-color); border: 1px solid var(--border-color);
-}
-.diff-added { color: #198754; font-weight: 500; }
-.diff-removed { color: #DC3545; font-weight: 500; }
-.diff-changed { color: #FD7E14; font-weight: 500; }
-
-/* Logs */
-/* Logs */
-.log-box {
-    background-color: #212529; color: #ced4da;
-    border: 1px solid #495057;
-    font-family: monospace;
-    height: 500px;
-    overflow-y: scroll;
-    overflow-x: auto;     /* ADD THIS: Enables horizontal scrolling when needed */
-    padding: 1rem;
-    white-space: pre;       /* CHANGE THIS: Prevents lines from wrapping */
-    border-radius: 6px;
-}
-#log-type-selector {
-    background-color: var(--surface-color); border: 1px solid var(--border-color); color: var(--text-primary);
-}
-.log-line.anomaly { color: #FFC107; font-weight: 500; }
-.log-line.anomaly::before { content: "⚠️ "; }
-
 
 /* --- Responsive Design --- */
 @media (max-width: 1200px) {
