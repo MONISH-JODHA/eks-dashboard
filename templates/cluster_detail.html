@@ -359,6 +359,8 @@
                                     <td>
                                         {% if not ng.is_karpenter_node and ng.releaseVersion and ng.version and ng.version in ng.releaseVersion %}
                                         <button class="action-btn upgrade-btn" data-nodegroup-name="{{ ng.name }}"><i data-feather="chevrons-up"></i> Upgrade Now</button>
+                                        {% elif ng.status == 'UPDATING' %}
+                                        <button class="action-btn" disabled><i data-feather="loader" class="spin"></i> Upgrading...</button>
                                         {% else %}<span class="text-muted">Up to date</span>{% endif %}
                                     </td>
                                 </tr>
@@ -699,7 +701,7 @@
         });
     }
 
-    // --- NEW: Log Streaming ---
+    // --- Log Streaming ---
     function openLogStream(namespace, podName) {
         const modal = document.getElementById('log-modal');
         document.getElementById('log-modal-title').textContent = `Logs: ${namespace}/${podName}`;
@@ -714,16 +716,16 @@
         
         setTimeout(() => fitAddon.fit(), 10); // Fit after modal is rendered
         xterm.reset();
-        xterm.writeln(`\x1b[1;36mConnecting to log stream for ${podName}...\x1b[0m`);
+        xterm.writeln(`\x1b[1;36mConnecting to log stream for ${podName}...\x1b[0m\r\n`);
 
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}/${namespace}/${podName}`;
         
         logStreamSocket = new WebSocket(wsUrl);
-        logStreamSocket.onopen = () => xterm.writeln('\n\x1b[1;32mConnection established. Tailing logs...\x1b[0m\n');
-        logStreamSocket.onmessage = (event) => xterm.write(event.data);
-        logStreamSocket.onerror = (error) => xterm.writeln(`\n\x1b[1;31mWebSocket Error. See browser console for details.\x1b[0m`);
-        logStreamSocket.onclose = () => xterm.writeln('\n\x1b[1;33mLog stream closed.\x1b[0m');
+        logStreamSocket.onopen = () => xterm.writeln('\x1b[1;32mConnection established. Tailing logs...\x1b[0m\r\n');
+        logStreamSocket.onmessage = (event) => xterm.write(event.data.replace(/\r/g, '\r\n'));
+        logStreamSocket.onerror = (error) => xterm.writeln(`\r\n\x1b[1;31mWebSocket Error. See browser console for details.\x1b[0m`);
+        logStreamSocket.onclose = () => xterm.writeln('\r\n\x1b[1;33mLog stream closed.\x1b[0m');
     }
 
     function closeLogStream() {
@@ -731,7 +733,7 @@
         document.getElementById('log-modal').style.display = 'none';
     }
 
-    // --- NEW: Vulnerability Details ---
+    // --- Vulnerability Details ---
     function showVulnDetails(vulnData, podName) {
         const modal = document.getElementById('vuln-modal');
         const body = document.getElementById('vuln-modal-body');
@@ -764,7 +766,7 @@
         modal.style.display = 'flex';
     }
 
-    // --- NEW: Event Streaming ---
+    // --- Event Streaming ---
     function startEventStream() {
         const statusEl = document.getElementById('event-stream-status');
         statusEl.textContent = 'Connecting...';
@@ -789,7 +791,7 @@
                 eventStreamSocket.close();
                 return;
             }
-            if (data.type !== 'ADDED') return;
+            if (data.type !== 'ADDED' && data.type !== 'MODIFIED') return;
 
             const eventObj = data.object;
             const tableBody = document.getElementById('events-table-body');
@@ -819,7 +821,7 @@
         };
     }
     
-    // --- NEW: RBAC Explorer ---
+    // --- RBAC Explorer ---
     function setupRbacExplorer() {
         document.getElementById('rbac-kind-filter').addEventListener('change', (e) => {
             document.getElementById('rbac-namespace-filter').style.display = e.target.value === 'ServiceAccount' ? 'block' : 'none';
@@ -1026,21 +1028,33 @@
             button.addEventListener('click', async (e) => {
                 const btn = e.currentTarget;
                 if (!confirm(`Are you sure you want to upgrade nodegroup "${btn.dataset.nodegroupName}"?`)) return;
+                
+                const originalContent = btn.innerHTML;
                 btn.disabled = true;
                 btn.innerHTML = '<i data-feather="loader" class="spin"></i> Upgrading...';
                 feather.replace();
-                const response = await fetch('/api/upgrade-nodegroup', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ accountId: CLUSTER_INFO.accountId, region: CLUSTER_INFO.region, clusterName: CLUSTER_INFO.name, nodegroupName: btn.dataset.nodegroupName, }),
-                });
-                const result = await response.json();
-                if (response.ok) {
-                    alert(`Upgrade initiated successfully!`);
-                    window.location.reload();
-                } else {
-                    alert(`Upgrade failed: ${result.error}`);
+
+                try {
+                    const response = await fetch('/api/upgrade-nodegroup', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ accountId: CLUSTER_INFO.accountId, region: CLUSTER_INFO.region, clusterName: CLUSTER_INFO.name, nodegroupName: btn.dataset.nodegroupName }),
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        alert(`Upgrade initiated successfully! The page will now reload.`);
+                        window.location.reload();
+                    } else {
+                        alert(`Upgrade failed: ${result.error}`);
+                    }
+                } catch (error) {
+                    console.error('Upgrade request failed:', error);
+                    alert(`An network error occurred while trying to start the upgrade.`);
+                } finally {
+                    // This block will run if the page hasn't reloaded (i.e., on failure)
                     btn.disabled = false;
+                    btn.innerHTML = originalContent;
+                    feather.replace();
                 }
             });
         });

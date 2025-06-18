@@ -23,6 +23,7 @@ from onelogin.saml2.utils import OneLogin_Saml2_Utils
 
 # Kubernetes imports for streaming
 from kubernetes import client, config, watch, stream
+from kubernetes.client.rest import ApiException
 
 # Your existing data fetcher functions
 from aws_data_fetcher import (
@@ -242,9 +243,6 @@ async def api_upgrade_nodegroup(request: Request, user: dict = Depends(get_curre
     account_id = data.get("accountId")
     
     role_arn = get_role_arn_for_account(account_id)
-    # Note: This logic assumes that if a role is needed, it must be present.
-    # It doesn't handle the case where the app is running in the target account without a role.
-
     result = upgrade_nodegroup_version(account_id, data.get("region"), data.get("clusterName"), data.get("nodegroupName"), role_arn)
     if "error" in result: return JSONResponse(status_code=400, content=result)
     return JSONResponse(content=result)
@@ -270,10 +268,26 @@ async def websocket_log_stream(websocket: WebSocket, account_id: str, region: st
             await websocket.send_text(f"ERROR: Could not get cluster details: {cluster_details['errors']}")
             return
 
-        api_client = get_k8s_api_client(cluster_name, cluster_details['networking']['endpointPublicAccessUrl'], cluster_details['certificateAuthority']['data'], region, role_arn)
+        cluster_endpoint = cluster_details.get('endpoint')
+        if not cluster_endpoint:
+            raise KeyError("Cluster endpoint URL not found in cluster details.")
+
+        api_client = get_k8s_api_client(cluster_name, cluster_endpoint, cluster_details['certificateAuthority']['data'], region, role_arn)
         core_v1 = client.CoreV1Api(api_client)
 
-        log_stream = stream.stream(core_v1.read_namespaced_pod_log, name=pod_name, namespace=namespace, follow=True, _preload_content=False)
+        container_to_log = None
+        try:
+            pod_details = core_v1.read_namespaced_pod(name=pod_name, namespace=namespace)
+            if pod_details.spec.containers:
+                container_to_log = pod_details.spec.containers[0].name
+                # Check for multiple containers and inform the user
+                if len(pod_details.spec.containers) > 1:
+                    await websocket.send_text(f"\x1b[33mPod has multiple containers. Tailing logs for the first container: '{container_to_log}'...\x1b[0m\r\n")
+        except ApiException as e:
+            await websocket.send_text(f"\n--- ERROR: Could not get pod details to determine container name. Reason: {e.reason} ---")
+            return
+
+        log_stream = stream.stream(core_v1.read_namespaced_pod_log, name=pod_name, namespace=namespace, container=container_to_log, follow=True, _preload_content=False)
 
         while log_stream.is_open():
             try:
@@ -295,6 +309,8 @@ async def websocket_log_stream(websocket: WebSocket, account_id: str, region: st
 async def websocket_event_stream(websocket: WebSocket, account_id: str, region: str, cluster_name: str):
     await websocket.accept()
     role_arn = get_role_arn_for_account(account_id)
+    w = None
+    api_client = None
 
     try:
         cluster_details = get_single_cluster_details(account_id, region, cluster_name, role_arn)
@@ -302,27 +318,42 @@ async def websocket_event_stream(websocket: WebSocket, account_id: str, region: 
             await websocket.send_text(json.dumps({"type": "ERROR", "message": f"Could not get cluster details: {cluster_details['errors']}"}))
             return
 
-        api_client = get_k8s_api_client(cluster_name, cluster_details['networking']['endpointPublicAccessUrl'], cluster_details['certificateAuthority']['data'], region, role_arn)
+        cluster_endpoint = cluster_details.get('endpoint')
+        if not cluster_endpoint:
+            raise KeyError("Cluster endpoint URL not found in cluster details.")
+
+        api_client = get_k8s_api_client(cluster_name, cluster_endpoint, cluster_details['certificateAuthority']['data'], region, role_arn)
         core_v1 = client.CoreV1Api(api_client)
         w = watch.Watch()
         
+        # --- FIX: Sanitize the event object before sending it ---
         for event in w.stream(core_v1.list_event_for_all_namespaces, timeout_seconds=3600):
-            await websocket.send_text(json.dumps(event))
+            # The 'raw_object' contains the full event data as a dictionary
+            # The 'object' is a kubernetes model object (e.g., V1Event)
+            # We need to serialize the model object to a dict before sending as JSON
+            sanitized_event = api_client.sanitize_for_serialization(event['object'])
+            
+            # We wrap it in the same structure that the watch stream provides
+            payload = {'type': event['type'], 'object': sanitized_event}
+            await websocket.send_text(json.dumps(payload))
 
     except WebSocketDisconnect:
         logging.info(f"Event stream for {cluster_name} disconnected.")
     except Exception as e:
         logging.error(f"Event stream error for {cluster_name}: {e}")
         try:
-            await websocket.send_text(json.dumps({"type": "ERROR", "message": f"Stream failed: {e}"}))
+            # Ensure the error message is a string for JSON serialization
+            await websocket.send_text(json.dumps({"type": "ERROR", "message": f"Stream failed: {str(e)}"}))
         except:
             pass # Websocket might be already closed
     finally:
-        w.stop()
+        if w:
+            w.stop()
+        # No need to close the api_client explicitly
         await websocket.close()
         logging.info(f"Event stream for {cluster_name} closed.")
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True, ws="wsproto")
