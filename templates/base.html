@@ -23,11 +23,11 @@
                     <i data-feather="grid"></i>
                     <span>Dashboard</span>
                 </a>
-                <!-- Add other navigation links here if needed -->
+                <a href="{{ url_for('list_clusters') }}" class="nav-item">
+                    <i data-feather="server"></i>
+                    <span>Clusters</span>
+                </a>
             </nav>
-            <div class="sidebar-filters" id="dashboard-filters">
-                <!-- Filter content will be injected by dashboard.html -->
-            </div>
         </aside>
 
         <main class="main-content">
@@ -89,13 +89,26 @@
             // --- Sidebar Active State ---
             const currentPath = window.location.pathname;
             const navLinks = document.querySelectorAll('.sidebar-nav .nav-item');
+            let activeLinkFound = false;
+
             navLinks.forEach(link => {
-                link.classList.remove('active');
-                 // Highlight the Dashboard link if on the root path or any cluster detail page
-                if (link.getAttribute('href') === '/' && (currentPath === '/' || currentPath.startsWith('/clusters/'))) {
+                const linkPath = link.getAttribute('href');
+                if (currentPath === linkPath) {
                     link.classList.add('active');
+                    activeLinkFound = true;
+                } else {
+                    link.classList.remove('active');
                 }
             });
+
+            if (!activeLinkFound) {
+                 navLinks.forEach(link => {
+                    const linkPath = link.getAttribute('href');
+                    if (currentPath.startsWith('/clusters') && linkPath === '/clusters') {
+                        link.classList.add('active');
+                    }
+                });
+            }
         });
     </script>
     {% block scripts_extra %}{% endblock %}

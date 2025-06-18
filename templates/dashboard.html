@@ -26,79 +26,28 @@
 
     <h3 class="section-title">Fleet Summary</h3>
     <div class="quick-info-grid">
-         <div class="info-box clickable-filter" data-filter-key="all" data-filter-value="all"><div class="icon-bg"><i data-feather="server"></i></div><div><div class="value" id="quick-info-total-clusters">{{ quick_info.total_clusters | default(0) }}</div><div class="label">Total Clusters</div></div></div>
-         <div class="info-box clickable-filter" data-filter-key="health" data-filter-value="HAS_ISSUES"><div class="icon-bg"><i data-feather="activity"></i></div><div><div class="value">{{ quick_info.clusters_with_health_issues | default(0) }}</div><div class="label">With Health Issues</div></div></div>
-         <div class="info-box clickable-filter" data-filter-key="upgrade" data-filter-value="NEEDS_ATTENTION"><div class="icon-bg"><i data-feather="tool"></i></div><div><div class="value">{{ quick_info.clusters_with_upgrade_insights_attention | default(0) }}</div><div class="label">Upgrade Attention</div></div></div>
-         <div class="info-box clickable-filter" data-filter-key="eol" data-filter-value="true"><div class="icon-bg"><i data-feather="calendar"></i></div><div><div class="value">{{ quick_info.clusters_nearing_eol_90_days | default(0) }}</div><div class="label">Nearing EOL (90d)</div></div></div>
+         <div class="info-box"><div class="icon-bg"><i data-feather="server"></i></div><div><div class="value" id="quick-info-total-clusters">{{ quick_info.total_clusters | default(0) }}</div><div class="label">Total Clusters</div></div></div>
+         <div class="info-box"><div class="icon-bg"><i data-feather="activity"></i></div><div><div class="value">{{ quick_info.clusters_with_health_issues | default(0) }}</div><div class="label">With Health Issues</div></div></div>
+         <div class="info-box"><div class="icon-bg"><i data-feather="tool"></i></div><div><div class="value">{{ quick_info.clusters_with_upgrade_insights_attention | default(0) }}</div><div class="label">Upgrade Attention</div></div></div>
+         <div class="info-box"><div class="icon-bg"><i data-feather="calendar"></i></div><div><div class="value">{{ quick_info.clusters_nearing_eol_90_days | default(0) }}</div><div class="label">Nearing EOL (90d)</div></div></div>
          <div class="info-box"><div class="icon-bg"><i data-feather="briefcase"></i></div><div><div class="value" id="quick-info-accounts">{{ quick_info.accounts_running_kubernetes_clusters | default(0) }}</div><div class="label">Active Accounts</div></div></div>
-         <div class="info-box"><div class="icon-bg"><i data-feather="dollar-sign"></i></div><div><div class="value" id="quick-info-cost">{{ quick_info.total_cost_30d | default("$0.00") }}</div><div class="label">Est. Cost (30d)</div></div></div>
     </div>
 
     <div class="widget-grid-dynamic">
         <div class="widget">
             <div class="widget-header">
                 <h2><i data-feather="briefcase"></i>Clusters by Account</h2>
-                <div class="widget-actions">
-                    <label for="account-top-n">Top</label>
-                    <select id="account-top-n">
-                        <option value="5">5</option>
-                        <option value="10" selected>10</option>
-                        <option value="20">20</option>
-                        <option value="Infinity">All</option>
-                    </select>
-                </div>
             </div>
             <div class="widget-content"><div class="chart-container"><canvas id="accountChart"></canvas></div></div>
         </div>
         <div class="widget">
             <div class="widget-header">
                 <h2><i data-feather="globe"></i>Clusters by Region</h2>
-                <div class="widget-actions">
-                    <label for="region-top-n">Top</label>
-                    <select id="region-top-n">
-                        <option value="5">5</option>
-                        <option value="10" selected>10</option>
-                        <option value="Infinity">All</option>
-                    </select>
-                </div>
             </div>
             <div class="widget-content"><div class="chart-container"><canvas id="regionChart"></canvas></div></div>
         </div>
         <div class="widget"><div class="widget-header"><h2><i data-feather="git-commit"></i>Clusters by Kubernetes Version</h2></div><div class="widget-content"><div class="chart-container"><canvas id="versionChart"></canvas></div></div></div>
         <div class="widget"><div class="widget-header"><h2><i data-feather="heart"></i>Cluster Health Status</h2></div><div class="widget-content"><div class="chart-container"><canvas id="healthStatusChart"></canvas></div></div></div>
-    </div>
-
-    <div class="widget">
-        <div class="widget-header">
-             <h2 id="clusters-table-title">All Clusters</h2>
-             <button id="export-clusters-csv" class="export-btn"><i data-feather="download"></i> Export to CSV</button>
-        </div>
-        <div class="widget-content" style="padding: 0;">
-            <div class="table-container">
-                <table class="data-table" id="clusters-table">
-                    <thead>
-                        <tr><th>Name</th><th>Account ID</th><th>Version</th><th>Region</th><th>Status</th><th>Health</th><th>Upgrade Insight</th><th>Cost (30d)</th></tr>
-                    </thead>
-                    <tbody>
-                        {% for cluster in clusters %}
-                        <tr class="clickable-row" data-href="{{ url_for('read_cluster_detail', account_id=cluster.account_id, region=cluster.region, cluster_name=cluster.name) }}" data-account="{{ cluster.account_id }}" data-region="{{ cluster.region }}" data-version="{{ cluster.version }}" data-arn="{{ cluster.arn }}">
-                            <td>{{ cluster.name }} <i data-feather="arrow-right" class="row-arrow"></i></td>
-                            <td>{{ cluster.account_id }}</td>
-                            <td>{{ cluster.version }}</td>
-                            <td>{{ cluster.region }}</td>
-                            <td class="status-cell"><span class="status-badge status-{{ cluster.status.lower() }}">{{ cluster.status }}</span></td>
-                            <td class="health-cell"><span class="health-badge health-{{ cluster.health_status_summary.lower().replace(' ', '_') }}">{{ cluster.health_status_summary }}</span></td>
-                            <td class="insight-cell"><span class="insight-badge insight-{{ cluster.upgrade_insight_status.lower().replace('_', '-') }}">{{ cluster.upgrade_insight_status | replace('_', ' ') | title }}</span></td>
-                            <td class="cost-cell">{{ cluster.cost_30d | default('N/A') }}</td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="8" style="text-align: center; padding: 2rem;" class="text-muted">No clusters found.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <p id="no-clusters-message" class="text-muted" style="display: none; text-align: center; padding: 2rem;">No clusters match the current filters.</p>
-        </div>
     </div>
 {% endblock %}
 
@@ -106,101 +55,26 @@
     <script>
         const allClusters = {{ clusters | tojson | safe if clusters else [] }};
         const lastRefreshed = new Date("{{ request.state.now.isoformat() if request.state.now else '' }}");
-
-        const uniqueAccounts = [...new Set(allClusters.map(c => c.account_id))].sort();
-        const uniqueRegions = [...new Set(allClusters.map(c => c.region))].sort();
-        const uniqueVersions = [...new Set(allClusters.map(c => c.version))].sort();
-        
-        const sortedClusters = allClusters.map(c => ({
-            name: c.name,
-            url: `/clusters/${c.account_id}/${c.region}/${c.name}`
-        })).sort((a, b) => a.name.localeCompare(b.name));
-
         let charts = {};
-        let activeFilters = { 
-            account: 'all', region: 'all', version: 'all', 
-            health: 'all', upgrade: 'all', eol: 'all',
-            topNAccounts: 10, topNRegions: 10 
-        };
 
-        function createFilterHtml() {
-            return `
-                <div class="filter-group">
-                    <h4 class="filter-title">Quick Filters</h4>
+        function renderChart(canvasId, type, data) {
+            const widgetContent = document.getElementById(canvasId).closest('.widget-content');
+            if (charts[canvasId]) charts[canvasId].destroy();
+            const labels = Object.keys(data).sort();
+            const values = labels.map(label => data[label]);
 
-                    <label for="filter-cluster-name">Go to Cluster</label>
-                    <select id="filter-cluster-name">
-                        <option value="">Select a cluster...</option>
-                        ${sortedClusters.map(c => `<option value="${c.url}">${c.name}</option>`).join('')}
-                    </select>
+            if (values.length === 0) {
+                 widgetContent.innerHTML = `<div class="chart-container"><canvas id="${canvasId}"></canvas><p class="text-muted" style="text-align:center; padding: 4rem 0;">No data to display.</p></div>`;
+                 return;
+            }
 
-                    <label for="filter-account">Account ID</label>
-                    <select id="filter-account">
-                        <option value="all">All Accounts</option>
-                        ${uniqueAccounts.map(acc => `<option value="${acc}">${acc}</option>`).join('')}
-                    </select>
-
-                    <label for="filter-region">Region</label>
-                    <select id="filter-region">
-                        <option value="all">All Regions</option>
-                        ${uniqueRegions.map(reg => `<option value="${reg}">${reg}</option>`).join('')}
-                    </select>
-                    
-                    <label for="filter-version">Version</label>
-                    <select id="filter-version">
-                        <option value="all">All Versions</option>
-                        ${uniqueVersions.map(ver => `<option value="${ver}">${ver}</option>`).join('')}
-                    </select>
-
-                    <button id="reset-filters-btn">Reset Filters</button>
-                </div>
-            `;
-        }
-
-        function updateDashboard(newFilters = {}) {
-            activeFilters = { ...activeFilters, ...newFilters };
-            
-            const filteredClusters = allClusters.filter(c => {
-                const accountMatch = activeFilters.account === 'all' || c.account_id === activeFilters.account;
-                const regionMatch = activeFilters.region === 'all' || c.region === activeFilters.region;
-                const versionMatch = activeFilters.version === 'all' || c.version === activeFilters.version;
-                const healthMatch = activeFilters.health === 'all' || c.health_status_summary === activeFilters.health;
-                const upgradeMatch = activeFilters.upgrade === 'all' || c.upgrade_insight_status === activeFilters.upgrade;
-                const eolMatch = activeFilters.eol === 'all' || (activeFilters.eol === 'true' && c.is_nearing_eol_90_days);
-                return accountMatch && regionMatch && versionMatch && healthMatch && upgradeMatch && eolMatch;
-            });
-
-            document.querySelectorAll('.clickable-filter').forEach(card => {
-                const key = card.dataset.filterKey;
-                const value = card.dataset.filterValue;
-                if (key === 'all') {
-                    const isAllActive = Object.values(activeFilters).every(v => v === 'all' || typeof v === 'number');
-                    card.classList.toggle('active-filter', isAllActive);
-                } else {
-                    card.classList.toggle('active-filter', activeFilters[key] === value);
-                }
-            });
-
-            updateAllCharts(filteredClusters);
-            updateClusterTable(filteredClusters);
-
-            document.getElementById('filter-account').value = activeFilters.account;
-            document.getElementById('filter-region').value = activeFilters.region;
-            document.getElementById('filter-version').value = activeFilters.version;
-            document.getElementById('account-top-n').value = isFinite(activeFilters.topNAccounts) ? activeFilters.topNAccounts : 'Infinity';
-            document.getElementById('region-top-n').value = isFinite(activeFilters.topNRegions) ? activeFilters.topNRegions : 'Infinity';
-            
-            feather.replace();
-        }
-        
-        function getTopNData(counts, topN) {
-            if (!isFinite(topN)) { return counts; }
-            const sorted = Object.entries(counts).sort(([, a], [, b]) => b - a);
-            if (sorted.length <= topN) { return counts; }
-            const topData = Object.fromEntries(sorted.slice(0, topN));
-            const otherCount = sorted.slice(topN).reduce((sum, [, count]) => sum + count, 0);
-            if (otherCount > 0) { topData['Other'] = otherCount; }
-            return topData;
+            const newCtx = document.getElementById(canvasId).getContext('2d');
+            const chartColors = ['#0D6EFD', '#6f42c1', '#198754', '#fd7e14', '#ffc107', '#0dcaf0', '#d63384'];
+            const healthStatusColors = {'HEALTHY': '#198754', 'HAS_ISSUES': '#FFC107', 'UNKNOWN': '#ADB5BD'};
+            let datasetOptions = type === 'bar' ? { backgroundColor: chartColors[0] } : { backgroundColor: canvasId === 'healthStatusChart' ? labels.map(l => healthStatusColors[l] || '#6C757D') : chartColors, borderColor: 'var(--surface-color)', borderWidth: 3 };
+            const baseOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: type === 'doughnut', position: 'right', labels: { color: 'var(--text-secondary)' } }, tooltip: { backgroundColor: 'var(--text-primary)', titleColor: 'var(--text-secondary)', bodyColor: 'var(--text-primary)', bodyFont: { weight: 'bold' }, borderColor: 'var(--border-color)', borderWidth: 1 }}};
+            const barOptions = { ...baseOptions, scales: { x: { ticks: { color: 'var(--text-secondary)' }, grid: { display: false } }, y: { ticks: { color: 'var(--text-secondary)', precision: 0 }, grid: { color: 'var(--border-color)' } } }};
+            charts[canvasId] = new Chart(newCtx, { type: type, data: { labels: labels, datasets: [{ label: 'Clusters', data: values, ...datasetOptions }] }, options: type === 'bar' ? barOptions : baseOptions });
         }
 
         function updateAllCharts(data) {
@@ -208,114 +82,17 @@
             const regionCounts = data.reduce((acc, c) => { acc[c.region] = (acc[c.region] || 0) + 1; return acc; }, {});
             const versionCounts = data.reduce((acc, c) => { acc[c.version] = (acc[c.version] || 0) + 1; return acc; }, {});
             const healthCounts = data.reduce((acc, c) => { acc[c.health_status_summary] = (acc[c.health_status_summary] || 0) + 1; return acc; }, {});
-            renderChart('accountChart', 'bar', getTopNData(accountCounts, activeFilters.topNAccounts), 'account');
-            renderChart('regionChart', 'bar', getTopNData(regionCounts, activeFilters.topNRegions), 'region');
-            renderChart('versionChart', 'bar', versionCounts, 'version');
-            renderChart('healthStatusChart', 'doughnut', healthCounts, 'health');
-        }
-
-        function renderChart(canvasId, type, data, filterKey = null) {
-            const widgetContent = document.getElementById(canvasId).closest('.widget-content');
-            if (charts[canvasId]) charts[canvasId].destroy();
-            const labels = Object.keys(data).sort((a,b) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
-            const values = labels.map(label => data[label]);
-            if (values.length === 0) {
-                 widgetContent.innerHTML = `<div class="chart-container"><canvas id="${canvasId}"></canvas><p class="text-muted" style="text-align:center; padding: 4rem 0;">No data for this view.</p></div>`;
-                 return;
-            }
-            widgetContent.innerHTML = `<div class="chart-container"><canvas id="${canvasId}"></canvas></div>`;
-            const newCtx = document.getElementById(canvasId);
-            const chartColors = ['#0D6EFD', '#6f42c1', '#198754', '#fd7e14', '#ffc107', '#0dcaf0', '#d63384'];
-            const healthStatusColors = {'HEALTHY': '#198754', 'HAS_ISSUES': '#FFC107', 'UNKNOWN': '#ADB5BD'};
-            let datasetOptions = type === 'bar' ? { backgroundColor: chartColors[0] } : { backgroundColor: canvasId === 'healthStatusChart' ? labels.map(l => healthStatusColors[l] || '#6C757D') : chartColors, borderColor: 'var(--surface-color)', borderWidth: 3 };
-            const baseOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: type === 'doughnut', position: 'right', labels: { color: 'var(--text-secondary)' } }, tooltip: { backgroundColor: 'var(--text-primary)', titleColor: 'var(--text-secondary)', bodyColor: 'var(--text-primary)', bodyFont: { weight: 'bold' }, borderColor: 'var(--border-color)', borderWidth: 1 }}};
-            const barOptions = { ...baseOptions, scales: { x: { ticks: { color: 'var(--text-secondary)' }, grid: { display: false } }, y: { ticks: { color: 'var(--text-secondary)', precision: 0 }, grid: { color: 'var(--border-color)' } } }};
-            charts[canvasId] = new Chart(newCtx, { type: type, data: { labels: labels, datasets: [{ label: 'Clusters', data: values, ...datasetOptions }] }, options: type === 'bar' ? barOptions : baseOptions });
-            if (filterKey) {
-                newCtx.onclick = (evt) => {
-                    const points = charts[canvasId].getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
-                    if (points.length) {
-                        const label = charts[canvasId].data.labels[points[0].index];
-                        if (label !== 'Other') { updateDashboard({ [filterKey]: label }); }
-                    }
-                };
-                newCtx.style.cursor = 'pointer';
-            }
-        }
-        
-        function updateClusterTable(data) {
-            const tableBody = document.querySelector('#clusters-table tbody');
-            const allRows = tableBody.querySelectorAll('tr');
-            const noDataMessage = document.getElementById('no-clusters-message');
-            document.getElementById('clusters-table-title').textContent = `Filtered Clusters (${data.length})`;
-            const arnsToDisplay = new Set(data.map(c => c.arn));
-            let visibleRows = 0;
-            allRows.forEach(row => {
-                if(arnsToDisplay.has(row.dataset.arn)) {
-                    row.style.display = '';
-                    visibleRows++;
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-            noDataMessage.style.display = visibleRows === 0 ? 'block' : 'none';
-        }
-
-        function exportTableToCSV(tableId, filename) {
-            let csv = [];
-            const table = document.getElementById(tableId);
-            const rows = table.querySelectorAll("tr");
-            const header = Array.from(rows[0].querySelectorAll("th")).map(th => `"${th.innerText.replace(/"/g, '""')}"`).join(',');
-            csv.push(header);
-
-            for (let i = 1; i < rows.length; i++) {
-                const row = rows[i];
-                if (row.style.display === 'none') continue;
-                const cols = row.querySelectorAll("td");
-                let rowData = Array.from(cols).map(col => `"${col.innerText.replace(/"/g, '""')}"`);
-                csv.push(rowData.join(","));
-            }
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(new Blob([csv.join("\n")], { type: "text/csv" }));
-            link.download = filename;
-            link.click();
-            URL.revokeObjectURL(link.href);
+            renderChart('accountChart', 'bar', accountCounts);
+            renderChart('regionChart', 'bar', regionCounts);
+            renderChart('versionChart', 'bar', versionCounts);
+            renderChart('healthStatusChart', 'doughnut', healthCounts);
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('dashboard-filters').innerHTML = createFilterHtml();
-            
             if (lastRefreshed.valueOf()) {
                 document.getElementById('last-refreshed-time').textContent = `Refreshed: ${lastRefreshed.toLocaleTimeString()}`;
             }
-
-            // --- EVENT HANDLERS ---
-            document.getElementById('filter-cluster-name').addEventListener('change', (e) => {
-                if (e.target.value) { window.location.href = e.target.value; }
-            });
-            document.getElementById('filter-account').addEventListener('change', (e) => updateDashboard({ account: e.target.value }));
-            document.getElementById('filter-region').addEventListener('change', (e) => updateDashboard({ region: e.target.value }));
-            document.getElementById('filter-version').addEventListener('change', (e) => updateDashboard({ version: e.target.value }));
-            document.getElementById('reset-filters-btn').addEventListener('click', () => {
-                 updateDashboard({ account: 'all', region: 'all', version: 'all', health: 'all', upgrade: 'all', eol: 'all', topNAccounts: 10, topNRegions: 10 });
-            });
-            document.querySelectorAll('.clickable-filter').forEach(card => {
-                card.addEventListener('click', () => {
-                    const key = card.dataset.filterKey;
-                    const value = card.dataset.filterValue;
-                    if (key === 'all') { updateDashboard({ account: 'all', region: 'all', version: 'all', health: 'all', upgrade: 'all', eol: 'all' }); return; }
-                    const changes = { health: 'all', upgrade: 'all', eol: 'all' };
-                    if (activeFilters[key] !== value) { changes[key] = value; }
-                    updateDashboard(changes);
-                });
-            });
-            document.getElementById('account-top-n').addEventListener('change', (e) => updateDashboard({ topNAccounts: e.target.value === 'Infinity' ? Infinity : parseInt(e.target.value, 10) }));
-            document.getElementById('region-top-n').addEventListener('change', (e) => updateDashboard({ topNRegions: e.target.value === 'Infinity' ? Infinity : parseInt(e.target.value, 10) }));
-            
-            document.querySelectorAll('.clickable-row').forEach(row => row.addEventListener('click', () => window.location.href = row.dataset.href));
-            document.getElementById('export-clusters-csv').addEventListener('click', () => exportTableToCSV('clusters-table', 'eks-clusters-export.csv'));
-            
-            updateDashboard();
+            updateAllCharts(allClusters);
         });
     </script>
 {% endblock %}

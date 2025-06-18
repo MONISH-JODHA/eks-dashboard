@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}EKS Clusters{% endblock %}
+{% block page_title %}All Clusters{% endblock %}
+
+{% block head_extra %}
+<style>
+    .filters-bar {
+        background-color: var(--surface-color);
+        padding: 15px 20px;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 25px;
+    }
+    .filter-item {
+        display: flex;
+        flex-direction: column;
+    }
+    .filter-item label {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        margin-bottom: 5px;
+    }
+    .filter-item select, .filter-item input {
+        min-width: 180px;
+    }
+    .filters-bar .action-button {
+        margin-left: auto;
+    }
+
+    .cluster-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+    }
+    .cluster-card {
+        background-color: var(--surface-color);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        text-decoration: none;
+        color: var(--text-primary);
+        transition: all 0.2s ease-in-out;
+        display: flex;
+        flex-direction: column;
+    }
+    .cluster-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+        border-color: var(--primary-color);
+    }
+    .card-header {
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .card-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        flex-grow: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .card-body {
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        font-size: 0.9rem;
+    }
+    .card-info-item {
+        display: flex;
+        flex-direction: column;
+    }
+    .card-info-item strong {
+        color: var(--text-secondary);
+        font-weight: 500;
+        margin-bottom: 3px;
+    }
+    .card-footer {
+        padding: 15px 20px;
+        border-top: 1px solid var(--border-color);
+        margin-top: auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+    <div class="filters-bar">
+        <div class="filter-item">
+            <label for="filter-account">Account ID</label>
+            <select id="filter-account"></select>
+        </div>
+        <div class="filter-item">
+            <label for="filter-region">Region</label>
+            <select id="filter-region"></select>
+        </div>
+        <div class="filter-item">
+            <label for="filter-version">Version</label>
+            <select id="filter-version"></select>
+        </div>
+        <button id="reset-filters-btn" class="action-button">Reset Filters</button>
+    </div>
+
+    <div class="cluster-grid" id="cluster-grid-container">
+        {% for cluster in clusters %}
+        <a href="{{ url_for('read_cluster_detail', account_id=cluster.account_id, region=cluster.region, cluster_name=cluster.name) }}"
+           class="cluster-card"
+           data-name="{{ cluster.name }}"
+           data-account="{{ cluster.account_id }}"
+           data-region="{{ cluster.region }}"
+           data-version="{{ cluster.version }}"
+           data-health="{{ cluster.health_status_summary }}"
+           data-upgrade="{{ cluster.upgrade_insight_status }}">
+            <div class="card-header">
+                <i data-feather="server" style="color: var(--primary-color);"></i>
+                <h3>{{ cluster.name }}</h3>
+                <span class="status-badge status-{{ cluster.status.lower() }}">{{ cluster.status }}</span>
+            </div>
+            <div class="card-body">
+                <div class="card-info-item"><strong>Account</strong><span>{{ cluster.account_id }}</span></div>
+                <div class="card-info-item"><strong>Region</strong><span>{{ cluster.region }}</span></div>
+                <div class="card-info-item"><strong>Version</strong><span>{{ cluster.version }}</span></div>
+                <div class="card-info-item"><strong>Created</strong><span>{{ cluster.createdAt.split('T')[0] if cluster.createdAt else 'N/A' }}</span></div>
+            </div>
+            <div class="card-footer">
+                <span class="health-badge health-{{ cluster.health_status_summary.lower().replace(' ', '_') }}">{{ cluster.health_status_summary }}</span>
+                <span class="insight-badge insight-{{ cluster.upgrade_insight_status.lower().replace('_', '-') }}">{{ cluster.upgrade_insight_status | replace('_', ' ') | title }}</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    <p id="no-clusters-message" class="text-muted" style="display: none; text-align: center; padding: 4rem;">No clusters match the current filters.</p>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+    const allClusters = {{ clusters | tojson | safe if clusters else [] }};
+    let activeFilters = { account: 'all', region: 'all', version: 'all' };
+
+    function populateFilters() {
+        const unique = {
+            accounts: [...new Set(allClusters.map(c => c.account_id))].sort(),
+            regions: [...new Set(allClusters.map(c => c.region))].sort(),
+            versions: [...new Set(allClusters.map(c => c.version))].sort()
+        };
+
+        const accountSelect = document.getElementById('filter-account');
+        accountSelect.innerHTML = '<option value="all">All Accounts</option>' + unique.accounts.map(o => `<option value="${o}">${o}</option>`).join('');
+
+        const regionSelect = document.getElementById('filter-region');
+        regionSelect.innerHTML = '<option value="all">All Regions</option>' + unique.regions.map(o => `<option value="${o}">${o}</option>`).join('');
+
+        const versionSelect = document.getElementById('filter-version');
+        versionSelect.innerHTML = '<option value="all">All Versions</option>' + unique.versions.map(o => `<option value="${o}">${o}</option>`).join('');
+    }
+
+    function applyFilters() {
+        const clusterCards = document.querySelectorAll('.cluster-card');
+        const noDataMessage = document.getElementById('no-clusters-message');
+        let visibleCount = 0;
+
+        clusterCards.forEach(card => {
+            const accountMatch = activeFilters.account === 'all' || card.dataset.account === activeFilters.account;
+            const regionMatch = activeFilters.region === 'all' || card.dataset.region === activeFilters.region;
+            const versionMatch = activeFilters.version === 'all' || card.dataset.version === activeFilters.version;
+
+            if (accountMatch && regionMatch && versionMatch) {
+                card.style.display = 'flex';
+                visibleCount++;
+            } else {
+                card.style.display = 'none';
+            }
+        });
+
+        noDataMessage.style.display = visibleCount === 0 ? 'block' : 'none';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        populateFilters();
+        feather.replace();
+
+        document.getElementById('filter-account').addEventListener('change', (e) => {
+            activeFilters.account = e.target.value;
+            applyFilters();
+        });
+        document.getElementById('filter-region').addEventListener('change', (e) => {
+            activeFilters.region = e.target.value;
+            applyFilters();
+        });
+        document.getElementById('filter-version').addEventListener('change', (e) => {
+            activeFilters.version = e.target.value;
+            applyFilters();
+        });
+        document.getElementById('reset-filters-btn').addEventListener('click', () => {
+            activeFilters = { account: 'all', region: 'all', version: 'all' };
+            document.getElementById('filter-account').value = 'all';
+            document.getElementById('filter-region').value = 'all';
+            document.getElementById('filter-version').value = 'all';
+            applyFilters();
+        });
+
+        if (allClusters.length === 0) {
+             document.getElementById('no-clusters-message').style.display = 'block';
+             document.getElementById('no-clusters-message').textContent = 'No clusters found for your account.';
+        }
+    });
+</script>
+{% endblock %}

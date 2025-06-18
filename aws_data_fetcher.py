@@ -8,15 +8,16 @@ from collections import Counter
 import time
 import base64
 import requests
-
+import subprocess
 from functools import lru_cache
-
+import re
 
 # --- New Kubernetes & Analysis Imports ---
 from kubernetes import client, config
 from kubernetes.config.kube_config import KubeConfigLoader
 from kubernetes.client.rest import ApiException
-
+import numpy as np
+from scipy import stats
 
 # --- EKS Data ---
 EKS_EOL_DATES = {
@@ -89,57 +90,96 @@ def get_k8s_api_client(cluster_name, cluster_endpoint, cluster_ca_data, role_arn
     loader.load_and_set(cfg)
     return client.ApiClient(configuration=cfg)
 
+def parse_quantity(s: str):
+    """Parses Kubernetes quantities (e.g., '500m', '1024Ki') into a common base unit."""
+    if not s: return 0
+    s = s.lower()
+    # Kubernetes uses 'm' for millicores, which are 1/1000 of a core. We will return them as a simple int.
+    if s.endswith('m'): return int(s[:-1])
+    # Memory: 'Ki' = kibibyte, 'Mi' = mebibyte. We return everything in bytes.
+    if s.endswith('ki'): return int(s[:-2]) * 1024
+    if s.endswith('mi'): return int(s[:-2]) * 1024**2
+    if s.endswith('gi'): return int(s[:-2]) * 1024**3
+    if s.endswith('ti'): return int(s[:-2]) * 1024**4
+    if s.isdigit(): return int(s) * 1000 # Assume plain number is CPU cores, convert to millicores for consistency with 'm'.
+    return 0
 
 
-
-
-# --- Cost Fetcher Functions ---
-def get_cost_for_clusters(session, cluster_names: list):
-    """Fetches cost data from AWS Cost Explorer for a list of clusters, grouped by a specific tag."""
-    if not cluster_names: return {}
-    cost_client = session.client('ce', region_name='us-east-1')
-    start_date = (datetime.now(timezone.utc) - relativedelta(months=1)).strftime('%Y-%m-%d')
-    end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+# --- Agentless Feature Logic ---
+def get_pod_metrics(custom_objects_api):
+    """Fetches pod metrics from the Kubernetes Metrics Server."""
     try:
-        response = cost_client.get_cost_and_usage(
-            TimePeriod={'Start': start_date, 'End': end_date}, Granularity='MONTHLY',
-            Filter={"Tags": {"Key": COST_TAG_KEY, "Values": cluster_names, "MatchOptions": ["EQUALS"]}},
-            Metrics=['UnblendedCost'], GroupBy=[{'Type': 'TAG', 'Key': COST_TAG_KEY}]
-        )
-        return {
-            group['Keys'][0].split('$')[-1]: f"${float(group['Metrics']['UnblendedCost']['Amount']):,.2f}"
-            for group in response.get('ResultsByTime', [])[0].get('Groups', [])
-        }
-    except ClientError as e:
-        if 'is not opted in' in e.response['Error'].get('Message', ''):
-            print("ERROR: AWS Cost Explorer is not enabled for this account.")
-        else: print(f"ERROR fetching cost data: {e}")
-        return {}
+        metrics = custom_objects_api.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "pods")
+        # Sum usage across all containers in a pod
+        # CPU is parsed into millicores, memory is parsed into bytes.
+        return {f"{m['metadata']['namespace']}/{m['metadata']['name']}": {
+            'cpu': sum(parse_quantity(c['usage'].get('cpu', '0m')) for c in m['containers']),
+            'memory': sum(parse_quantity(c['usage'].get('memory', '0Ki')) for c in m['containers'])
+        } for m in metrics['items']}
+    except ApiException as e:
+        if e.status == 404:
+            print("ERROR: Metrics API (metrics.k8s.io) not found. Is the Metrics Server installed?")
+            return {"error": "Metrics Server not found in cluster."}
+        print(f"Error fetching pod metrics: {e}")
+        return {"error": f"API Error fetching metrics: {e.reason}"}
     except Exception as e:
-        print(f"UNEXPECTED ERROR fetching cost data: {e}")
-        return {}
+        print(f"Unexpected error fetching pod metrics: {e}")
+        return {"error": f"An unexpected error occurred while fetching metrics: {str(e)}"}
 
-def get_cost_breakdown(account_id, region, cluster_name, role_arn=None):
-    """Fetches a cost breakdown by service for a specific cluster."""
-    session = get_session(role_arn)
-    if not session: return {"error": f"Failed to get session for account {account_id}."}
-    cost_client = session.client('ce', region_name='us-east-1')
-    start_date = (datetime.now(timezone.utc) - relativedelta(days=30)).strftime('%Y-%m-%d')
-    end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+def analyze_workloads(core_v1, apps_v1, pod_metrics):
+    """Performs anomaly detection, and rightsizing analysis."""
+    anomalies, rightsizing = [], []
+    
     try:
-        response = cost_client.get_cost_and_usage(
-            TimePeriod={'Start': start_date, 'End': end_date}, Granularity='MONTHLY',
-            Filter={"Tags": {"Key": COST_TAG_KEY, "Values": [cluster_name], "MatchOptions": ["EQUALS"]}},
-            Metrics=['UnblendedCost'], GroupBy=[{'Type': 'DIMENSION', 'Key': 'SERVICE'}]
-        )
-        results = [
-            {"service": group['Keys'][0], "amount": float(group['Metrics']['UnblendedCost']['Amount'])}
-            for group in response['ResultsByTime'][0]['Groups']
-        ]
-        return sorted(results, key=lambda x: x['amount'], reverse=True)
-    except ClientError as e:
-        return {'error': f"Could not fetch cost breakdown: {e.response['Error']['Message']}"}
+        all_pods = core_v1.list_pod_for_all_namespaces(timeout_seconds=60).items
+        deployments = apps_v1.list_deployment_for_all_namespaces(timeout_seconds=60).items
+    except ApiException as e:
+        return {"error": f"Failed to list workloads: {e.reason}", "anomalies": [], "rightsizing": []}
 
+    for dep in deployments:
+        dep_name, ns = dep.metadata.name, dep.metadata.namespace
+
+        # --- Restart Analysis Logic ---
+        selector = dep.spec.selector.match_labels
+        if not selector: continue
+        dep_pods = [p for p in all_pods if p.metadata.namespace == ns and p.metadata.labels and selector.items() <= p.metadata.labels.items()]
+
+        if len(dep_pods) < 3: continue
+
+        restart_counts = [sum(cs.restart_count for cs in (p.status.container_statuses or [])) for p in dep_pods]
+        if np.std(restart_counts) > 0 and len(restart_counts) > 1:
+            zscores = np.abs(stats.zscore(restart_counts))
+            for i, pod in enumerate(dep_pods):
+                if zscores[i] > 2.5:
+                    anomalies.append({
+                        "type": "Excessive Restarts", "severity": "High",
+                        "pod": pod.metadata.name, "namespace": ns,
+                        "details": f"Pod has {restart_counts[i]} restarts, while the average for this deployment is {np.mean(restart_counts):.1f}."
+                    })
+
+        # --- Rightsizing Analysis Logic ---
+        if pod_metrics and "error" not in pod_metrics:
+            cpu_usages = [pod_metrics.get(f"{p.metadata.namespace}/{p.metadata.name}", {}).get('cpu', 0) for p in dep_pods]
+            main_container = dep.spec.template.spec.containers[0] if dep.spec.template.spec.containers else None
+            if not main_container or not main_container.resources or not main_container.resources.requests:
+                continue
+            req_cpu_str = main_container.resources.requests.get('cpu', '0m')
+            pod_requests_cpu = parse_quantity(req_cpu_str)
+            if pod_requests_cpu > 100:
+                p95_cpu = np.percentile([c for c in cpu_usages if c > 0], 95) if any(c > 0 for c in cpu_usages) else 0
+                if p95_cpu < pod_requests_cpu * 0.4:
+                    rightsizing.append({
+                        "workload": dep_name, "namespace": ns, "kind": "Deployment", "metric": "CPU",
+                        "current_request": f"{req_cpu_str}",
+                        "recommended_request": f"{int(p95_cpu * 1.2)}m",
+                    })
+
+    return {
+        "anomalies": anomalies,
+        "rightsizing": rightsizing,
+        "error": None
+    }
 
 
 # --- Detailed AWS Fetcher Functions ---
@@ -304,8 +344,6 @@ def upgrade_nodegroup_version(account_id, region, cluster_name, nodegroup_name, 
     except ClientError as e:
         return {"error": e.response['Error']['Message']}
 
-
-
 def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
     session = get_session(role_arn)
     if not session:
@@ -428,15 +466,13 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
         "health_status_summary": "HEALTHY" if not c_raw.get("health", {}).get("issues", []) else "HAS_ISSUES",
         "upgrade_insight_status": "NEEDS_ATTENTION" if version != "Unknown" and version < "1.29" else "PASSING",
         "is_nearing_eol_90_days": bool(eol_date and eol_date <= ninety_days_from_now and eol_date > now),
-        "cost_30d": "N/A",
     }
     if with_details and eks_client and session:
         cluster_name = c_raw["name"]
-        cluster_data['cost_30d'] = get_cost_for_clusters(session, [cluster_name]).get(cluster_name, "N/A")
         managed_nodegroups_raw = fetch_managed_nodegroups(eks_client, cluster_name)
         karpenter_nodes_raw = []
         cluster_data["workloads"] = {"error": "Missing endpoint or CA data."}
-        
+        cluster_data['analysis'] = {"error": "Missing endpoint or CA data."}
 
         # All Kubernetes API calls happen here
         if c_raw.get("endpoint") and c_raw.get("certificateAuthority", {}).get("data"):
@@ -449,13 +485,20 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
                     # We can re-use the python-client for analysis
                     api_client = get_k8s_api_client(cluster_name, endpoint, ca_data, role_arn)
                     core_v1 = client.CoreV1Api(api_client)
+                    apps_v1 = client.AppsV1Api(api_client)
+                    custom_objects_api = client.CustomObjectsApi(api_client)
+
+                    pod_metrics = get_pod_metrics(custom_objects_api)
                     
+                    cluster_data['analysis'] = {"error": pod_metrics["error"]} if "error" in pod_metrics else analyze_workloads(core_v1, apps_v1, pod_metrics)
+
                     # Fetch karpenter nodes using the same client
                     karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(core_v1)
                 except Exception as e:
                     print(f"Failed to perform agentless analysis for {cluster_name}: {e}")
-                    
-            
+                    cluster_data['analysis'] = {"error": f"Failed during K8s client interaction for analysis: {e}"}
+            else:
+                cluster_data['analysis'] = {"error": "Skipped due to workload fetch failure."}
 
         processed_nodegroups = [{"name": ng.get("nodegroupName"), "status": ng.get("status"), "amiType": ng.get("amiType"), "instanceTypes": ng.get("instanceTypes", []), "releaseVersion": ng.get("releaseVersion"), "version": ng.get("version"), "createdAt": ng.get("createdAt"), "desiredSize": ng.get("scalingConfig", {}).get("desiredSize"), "is_karpenter_node": False} for ng in managed_nodegroups_raw]
         processed_nodegroups.extend(karpenter_nodes_raw)
@@ -463,7 +506,7 @@ def _process_cluster_data(c_raw, with_details=False, eks_client=None, role_arn=N
         cluster_data.update({
             "nodegroups_data": processed_nodegroups, "addons": fetch_addons_for_cluster(eks_client, cluster_name),
             "fargate_profiles": fetch_fargate_profiles_for_cluster(eks_client, cluster_name), "oidc_provider_url": fetch_oidc_provider_for_cluster(c_raw),
-            "networking": c_raw.get("resourcesVpcConfig", {}), "security_insights": get_security_insights(c_raw, eks_client)
+            "networking": c_raw.get("resourcesVpcConfig", {}), "security_insights": get_security_insights(c_raw, eks_client),
         })
     return cluster_data
 
@@ -500,18 +543,9 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
         except Exception as e: errors.append(f"Error describing {cluster_info['name']}: {e}")
 
     processed_clusters = [_process_cluster_data(c) for c in all_clusters_raw]
-    clusters_by_account = {}
-    for c in processed_clusters: clusters_by_account.setdefault(c['account_id'], []).append(c['name'])
-    total_cost = 0.0
-    for account in accounts_to_scan:
-        session = get_session(account.get('role_arn'))
-        if session and (names := clusters_by_account.get(account['id'])):
-            cost_map = get_cost_for_clusters(session, names)
-            for c in processed_clusters:
-                if c['account_id'] == account['id'] and (cost_str := cost_map.get(c['name'])):
-                    c['cost_30d'] = cost_str; total_cost += float(cost_str.replace('$', '').replace(',', ''))
+    
     for c in processed_clusters: c['createdAt'] = c['createdAt'].isoformat() if isinstance(c.get('createdAt'), datetime) else c.get('createdAt')
-    return {"clusters": processed_clusters, "errors": errors, "quick_info": {"total_clusters": len(processed_clusters), "total_cost_30d": f"${total_cost:,.2f}", "clusters_with_health_issues": sum(1 for c in processed_clusters if c["health_issues"]), "clusters_with_upgrade_insights_attention": sum(1 for c in processed_clusters if c["upgrade_insight_status"] == "NEEDS_ATTENTION"), "clusters_nearing_eol_90_days": sum(1 for c in processed_clusters if c["is_nearing_eol_90_days"]), "accounts_running_kubernetes_clusters": len({c["account_id"] for c in processed_clusters}), "regions_running_kubernetes_clusters": len({c["region"] for c in processed_clusters})}}
+    return {"clusters": processed_clusters, "errors": errors, "quick_info": {"total_clusters": len(processed_clusters), "clusters_with_health_issues": sum(1 for c in processed_clusters if c["health_issues"]), "clusters_with_upgrade_insights_attention": sum(1 for c in processed_clusters if c["upgrade_insight_status"] == "NEEDS_ATTENTION"), "clusters_nearing_eol_90_days": sum(1 for c in processed_clusters if c["is_nearing_eol_90_days"]), "accounts_running_kubernetes_clusters": len({c["account_id"] for c in processed_clusters}), "regions_running_kubernetes_clusters": len({c["region"] for c in processed_clusters})}}
 
 def get_single_cluster_details(account_id, region, cluster_name, role_arn=None, use_cache=True):
     """

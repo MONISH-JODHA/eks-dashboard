@@ -27,8 +27,7 @@ from aws_data_fetcher import (
     get_live_eks_data,
     get_single_cluster_details,
     upgrade_nodegroup_version,
-    get_cluster_metrics,
-    get_cost_breakdown
+    get_cluster_metrics
 )
 
 # Load environment variables from your .env file
@@ -143,11 +142,8 @@ def get_role_arn_for_account(account_id: str) -> str | None:
                 return r_arn.strip()
     return None
 
-# --- Main Application Routes ---
-@app.get("/", response_class=HTMLResponse, name="read_dashboard")
-async def read_dashboard(request: Request, user: dict = Depends(get_current_user)):
-    if isinstance(user, RedirectResponse): return user
-    request.state.now = datetime.now(timezone.utc)
+# --- Common Data Fetching Logic ---
+def get_dashboard_data(user: dict):
     saml_attributes = user.get("attributes", {})
     group_map_str = os.getenv("GROUP_TO_ACCOUNT_MAP", "")
     group_key = next((k for k in saml_attributes if 'Group' in k), None)
@@ -156,16 +152,31 @@ async def read_dashboard(request: Request, user: dict = Depends(get_current_user
     cache_key = f"dashboard_data_{'_'.join(sorted(user_groups))}"
     
     if cache_key in cache:
-        logging.info(f"Cache HIT for dashboard: user='{user.get('email')}'")
+        logging.info(f"Cache HIT for dashboard data: user='{user.get('email')}'")
         dashboard_data = cache[cache_key]
     else:
-        logging.info(f"Cache MISS for dashboard: user='{user.get('email')}'")
+        logging.info(f"Cache MISS for dashboard data: user='{user.get('email')}'")
         dashboard_data = get_live_eks_data(user_groups, group_map_str)
         if not dashboard_data.get("errors"):
             cache[cache_key] = dashboard_data
+    return dashboard_data
 
+# --- Main Application Routes ---
+@app.get("/", response_class=HTMLResponse, name="read_dashboard")
+async def read_dashboard(request: Request, user: dict = Depends(get_current_user)):
+    if isinstance(user, RedirectResponse): return user
+    request.state.now = datetime.now(timezone.utc)
+    dashboard_data = get_dashboard_data(user)
     context = {"request": request, "user": user, **dashboard_data}
     return templates.TemplateResponse("dashboard.html", context)
+
+@app.get("/clusters", response_class=HTMLResponse, name="list_clusters")
+async def list_clusters(request: Request, user: dict = Depends(get_current_user)):
+    if isinstance(user, RedirectResponse): return user
+    request.state.now = datetime.now(timezone.utc)
+    dashboard_data = get_dashboard_data(user)
+    context = {"request": request, "user": user, **dashboard_data}
+    return templates.TemplateResponse("clusters.html", context)
 
 @app.get("/clusters/{account_id}/{region}/{cluster_name}", response_class=HTMLResponse, name="read_cluster_detail")
 async def read_cluster_detail(request: Request, account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
@@ -201,9 +212,8 @@ async def read_cluster_detail(request: Request, account_id: str, region: str, cl
 async def refresh_data(user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
     cache.clear()
-    
-    logging.info(f"Cache and Snapshots cleared by user: {user.get('email')}")
-    return JSONResponse(content={"status": "success", "message": "Cache and Snapshots cleared."})
+    logging.info(f"Cache cleared by user: {user.get('email')}")
+    return JSONResponse(content={"status": "success", "message": "Cache cleared."})
 
 @app.post("/api/refresh-cluster/{account_id}/{region}/{cluster_name}", tags=["API"])
 async def refresh_cluster_data(account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
@@ -247,20 +257,8 @@ async def api_get_cluster_metrics(account_id: str, region: str, cluster_name: st
         return JSONResponse(content=metrics, status_code=500)
     return JSONResponse(content=metrics)
 
-# --- New API Routes for Added Features ---
-
-@app.get("/api/cost-breakdown/{account_id}/{region}/{cluster_name}", tags=["API"])
-async def api_get_cost_breakdown(account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
-    if isinstance(user, JSONResponse): return user
-    role_arn = get_role_arn_for_account(account_id)
-    costs = get_cost_breakdown(account_id, region, cluster_name, role_arn)
-    if 'error' in costs:
-        return JSONResponse(content=costs, status_code=500)
-    return JSONResponse(content=costs)
-
-
-
 # --- Main Execution Block ---
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
