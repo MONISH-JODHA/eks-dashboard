@@ -501,6 +501,34 @@ body {
     padding: 15px; border-radius: var(--border-radius); text-align: center;
 }
 
+/* Pod Filters */
+.pod-filters-bar {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+    align-items: center;
+}
+.pod-filters-bar input, .pod-filters-bar select {
+    padding: 0.5rem;
+    background-color: var(--surface-color);
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+.pod-filters-bar input {
+    flex-grow: 1;
+    min-width: 250px;
+}
+.pod-filters-bar select {
+    min-width: 180px;
+}
+
+
 /* --- Workload Graph --- */
 .vis-network { border-color: var(--border-color) !important; }
 .vis-navigation .vis-button, .vis-manipulation .vis-button, .vis-edit-mode .vis-button {
@@ -683,5 +711,9 @@ body {
     }
     #graph-info-panel.visible {
         transform: translateY(0);
+    }
+    .pod-filters-bar {
+        flex-direction: column;
+        align-items: stretch;
     }
 }

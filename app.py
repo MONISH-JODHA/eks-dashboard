@@ -189,16 +189,20 @@ async def read_cluster_detail(request: Request, account_id: str, region: str, cl
     else:
         logging.info(f"Cache MISS for cluster detail: {cluster_name}")
         try:
-            self_account_id = boto3.client('sts').get_caller_identity().get('Account')
+            # We determine the role based on the target account, not the self-account.
+            self_account_id_sts = boto3.client('sts').get_caller_identity().get('Account')
         except (ClientError, NoCredentialsError, PartialCredentialsError) as e:
-            logging.error(f"Could not determine self account ID from instance metadata: {e}")
-            return templates.TemplateResponse("error.html", {"request": request, "errors": ["Could not determine the application's own account ID."]}, status_code=500)
-        
+            logging.warning(f"Could not determine self account ID from instance metadata: {e}")
+            self_account_id_sts = None
+
         role_arn = None
-        if account_id != self_account_id:
+        if account_id != self_account_id_sts:
             role_arn = get_role_arn_for_account(account_id)
             if not role_arn:
-                return templates.TemplateResponse("error.html", {"request": request, "errors": [f"No role ARN for account {account_id} is configured in AWS_TARGET_ACCOUNTS_ROLES."], "reason": "Please check your .env file."}, status_code=404)
+                # If we are targeting another account, a role MUST be configured.
+                err_msg = f"No role ARN for account {account_id} is configured in AWS_TARGET_ACCOUNTS_ROLES."
+                logging.error(err_msg)
+                return templates.TemplateResponse("error.html", {"request": request, "errors": [err_msg], "reason": "Please check your .env file."}, status_code=404)
         
         cluster_details = get_single_cluster_details(account_id=account_id, region=region, cluster_name=cluster_name, role_arn=role_arn)
         if not cluster_details.get("errors"):

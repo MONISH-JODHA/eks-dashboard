@@ -13,8 +13,8 @@
     <!-- Page-specific styles are now mostly in style.css, this block is for overrides and specifics -->
     <style>
         .widget-content[style*="padding: 0"] .table-container {
-            border: none;
-            border-radius: 0;
+            border-top: none;
+            border-radius: 0 0 var(--border-radius) var(--border-radius);
         }
     </style>
 {% endblock %}
@@ -44,7 +44,7 @@
             <div class="widget">
                 <div class="widget-header">
                     <h2>Cluster Summary</h2>
-                    <button id="refreshBtn" class="action-button">
+                    <button id="refreshBtn" class="action-button" title="Refresh data for this cluster">
                         <i data-feather="refresh-cw"></i> Refresh Data
                     </button>
                 </div>
@@ -56,7 +56,7 @@
                         <div><strong>Account ID:</strong> <span>{{ cluster.account_id }}</span></div>
                         <div><strong>K8s Version:</strong> <span>{{ cluster.version }}</span></div>
                         <div><strong>Platform Version:</strong> <span>{{ cluster.platformVersion }}</span></div>
-                        <div><strong>Created At:</strong> <span>{{ cluster.createdAt.strftime('%Y-%m-%d') if cluster.createdAt else 'N/A' }}</span></div>
+                        <div><strong>Created At:</strong> <span>{{ cluster.createdAt.strftime('%Y-%m-%d %H:%M Z') if cluster.createdAt else 'N/A' }}</span></div>
                         <div><strong>OIDC Provider:</strong> <span class="code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
                     </div>
                 </div>
@@ -66,8 +66,8 @@
                 <div class="widget-content">
                      <div class="summary-grid">
                         <div><strong>VPC ID:</strong> <span class="code">{{ cluster.networking.vpcId or 'N/A' }}</span></div>
-                        <div><strong>Public Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPublicAccess else 'deleting' }}">{{ 'Enabled' if cluster.networking.endpointPublicAccess else 'Disabled' }}</span></div>
-                        <div><strong>Private Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPrivateAccess else 'deleting' }}">{{ 'Enabled' if cluster.networking.endpointPrivateAccess else 'Disabled' }}</span></div>
+                        <div><strong>Public Access:</strong> <span class="status-badge status-{{ 'failed' if cluster.networking.endpointPublicAccess else 'active' }}">{{ 'Enabled' if cluster.networking.endpointPublicAccess else 'Disabled' }}</span></div>
+                        <div><strong>Private Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPrivateAccess else 'failed' }}">{{ 'Enabled' if cluster.networking.endpointPrivateAccess else 'Disabled' }}</span></div>
                         <div><strong>Subnets:</strong> <div class="tags-container" style="margin-top: 5px;">{% for id in cluster.networking.subnetIds %}<span class="tag code">{{ id }}</span>{% else %}<span>N/A</span>{% endfor %}</div></div>
                     </div>
                 </div>
@@ -169,13 +169,25 @@
                 </div>
                  <div class="widget">
                     <div class="widget-header"><h2>All Pods</h2></div>
+                    <div class="pod-filters-bar">
+                         <input type="text" id="pod-name-filter" placeholder="Filter by pod name...">
+                         <select id="pod-namespace-filter"></select>
+                         <select id="pod-status-filter">
+                             <option value="all">All Statuses</option>
+                             <option value="Running">Running</option>
+                             <option value="Pending">Pending</option>
+                             <option value="Succeeded">Succeeded</option>
+                             <option value="Failed">Failed</option>
+                             <option value="Unknown">Unknown</option>
+                         </select>
+                    </div>
                     <div class="widget-content" style="padding:0;">
                         <div class="table-container">
-                             <table class="data-table">
+                             <table class="data-table" id="all-pods-table">
                                 <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th></tr></thead>
                                 <tbody>
                                     {% for pod in cluster.workloads.pods %}
-                                    <tr>
+                                    <tr data-name="{{ pod.metadata.name.lower() }}" data-namespace="{{ pod.metadata.namespace }}" data-status="{{ pod.status.phase }}">
                                         <td>{{ pod.metadata.name }}</td>
                                         <td>{{ pod.metadata.namespace }}</td>
                                         <td>{{ pod.spec.nodeName | default('N/A') }}</td>
@@ -218,9 +230,9 @@
                                     <td>{{ ng.instanceTypes | join(', ') }}</td>
                                     <td>{{ ng.version }}</td>
                                     <td>
-                                        {% if not ng.is_karpenter_node and ng.releaseVersion and ng.version and ng.releaseVersion < ng.version %}
+                                        {% if not ng.is_karpenter_node and ng.releaseVersion and ng.version and ng.version in ng.releaseVersion %}
                                         <button class="action-btn upgrade-btn" data-nodegroup-name="{{ ng.name }}"><i data-feather="chevrons-up"></i> Upgrade Now</button>
-                                        {% else %}<span class="text-muted">N/A</span>{% endif %}
+                                        {% else %}<span class="text-muted">Up to date</span>{% endif %}
                                     </td>
                                 </tr>
                                 {% else %}
@@ -321,6 +333,7 @@
     let activeTab = 'overview';
     let metricCharts = {};
     let metricsLoaded = false;
+    let originalNodeStyles = {};
 
     // --- Tab Switching Logic ---
     function openTab(evt, tabName) {
@@ -332,6 +345,7 @@
 
         if (tabName === 'workloads' && !workloadGraphRendered) {
             renderWorkloadGraph();
+            setupPodFilters();
             workloadGraphRendered = true;
         } else if (tabName === 'observability' && !metricsLoaded) {
             loadMetrics();
@@ -346,19 +360,25 @@
             container.innerHTML = '<p class="text-muted" style="text-align:center; padding: 50px;">Could not render workload graph. Data is unavailable.</p>';
             return;
         }
-        visNodes = new vis.DataSet(workloadsData.map_nodes);
+
+        const nodes = workloadsData.map_nodes.map(n => {
+            originalNodeStyles[n.id] = { group: n.group }; // Store original group for color reset
+            return n;
+        });
+
+        visNodes = new vis.DataSet(nodes);
         visEdges = new vis.DataSet(workloadsData.map_edges);
         const data = { nodes: visNodes, edges: visEdges };
         const options = {
             nodes: { shape: 'dot', size: 18, font: { size: 14, color: 'var(--text-secondary)' }, borderWidth: 2, },
-            edges: { width: 1.5, color: { color: 'var(--border-color)', highlight: 'var(--primary-color)', hover: 'var(--primary-color-dark)' }, smooth: { type: 'continuous' } },
+            edges: { width: 1.5, color: { color: 'var(--border-color)', highlight: 'var(--primary-color)', hover: 'var(--primary-color-dark)' }, smooth: { type: 'cubicBezier' }, arrows: { to: { enabled: true, scaleFactor: 0.7 } } },
             groups: {
                 ingress: { color: { background: '#FD7E14', border: '#ffc799' }, shape: 'diamond' },
                 svc: { color: { background: '#0D6EFD', border: '#a3c7fe' }, shape: 'square' },
                 pod: { color: { background: '#198754', border: '#b3d8c6' }, shape: 'dot' },
-                node: { color: { background: '#6C757D', border: '#cfd2d4' }, shape: 'triangle' },
+                node: { color: { background: '#6C757D', border: '#cfd2d4' }, shape: 'triangle', icon: { face: 'Feather', code: '\uf1b2', size: 50, color: 'white' } },
             },
-            physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -40, centralGravity: 0.01, springLength: 230, springConstant: 0.1 }, maxVelocity: 146, minVelocity: 0.75, stabilization: { iterations: 150, fit: true }, },
+            physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -50, centralGravity: 0.005, springLength: 250, springConstant: 0.18, avoidOverlap: 1 }, maxVelocity: 150, minVelocity: 0.75, stabilization: { iterations: 150, fit: true }, },
             interaction: { tooltipDelay: 200, hideEdgesOnDrag: true, hover: true, navigationButtons: true },
             layout: { improvedLayout: true }
         };
@@ -408,7 +428,7 @@
             if (key === 'kind' || key === 'name') continue;
             let displayValue;
             if (Array.isArray(value)) {
-                displayValue = value.length > 0 ? `<ul>${value.map(item => `<li>${JSON.stringify(item)}</li>`).join('')}</ul>` : 'None';
+                displayValue = value.length > 0 ? `<ul>${value.map(item => `<li><span class="code">${JSON.stringify(item)}</span></li>`).join('')}</ul>` : 'None';
             } else if (typeof value === 'object' && value !== null) {
                 displayValue = `<pre class="code" style="white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${JSON.stringify(value, null, 2)}</pre>`;
             } else {
@@ -419,38 +439,97 @@
         }
         bodyEl.innerHTML = html;
         panel.classList.add('visible');
-        feather.replace();
     }
 
     function highlightNodeAndConnections(nodeId) {
         const allNodes = visNodes.get({ returnType: 'Object' });
         const allEdges = visEdges.get();
         const connectedNodes = visNetwork.getConnectedNodes(nodeId);
-        connectedNodes.push(nodeId);
+        connectedNodes.push(nodeId); // Also include the main node
+
+        const nodesToUpdate = [];
         for (const id in allNodes) {
             const node = allNodes[id];
             if (!connectedNodes.includes(id)) {
-                node.color = { border: 'var(--border-color)', background: 'var(--bg-color)' };
-                node.font = { color: 'var(--text-muted)' };
+                node.color = { border: 'rgba(200, 200, 200, 0.2)', background: 'rgba(240, 240, 240, 0.2)' };
+                node.font = { color: 'rgba(200, 200, 200, 0.5)' };
+                node.label = undefined; // Hide label of non-connected nodes
+            } else {
+                 node.color = null; // Revert to group color
+                 node.font = { color: 'var(--text-secondary)' };
+                 node.label = workloadsData.map_nodes.find(n => n.id === id).label;
             }
+            nodesToUpdate.push(node);
         }
-        visNodes.update(Object.values(allNodes));
+        visNodes.update(nodesToUpdate);
+
+        const edgesToUpdate = [];
         allEdges.forEach(edge => {
-            if (edge.from !== nodeId && edge.to !== nodeId) { edge.color = 'var(--border-color)'; } 
-            else { edge.color = { color: 'var(--primary-color)', highlight: 'var(--primary-color)' }; }
+            if (edge.from === nodeId || edge.to === nodeId) {
+                 edge.color = { color: 'var(--primary-color)', highlight: 'var(--primary-color)' };
+                 edge.width = 2.5;
+            } else {
+                edge.color = 'rgba(200, 200, 200, 0.2)';
+                edge.width = 1;
+            }
+            edgesToUpdate.push(edge);
         });
-        visEdges.update(allEdges);
+        visEdges.update(edgesToUpdate);
     }
     
     function resetHighlightAndPanel() {
         document.getElementById('graph-info-panel').classList.remove('visible');
-        // Restore original node/edge colors
-        const originalNodes = workloadsData.map_nodes.map(n => ({ id: n.id, color: null, font: { color: 'var(--text-secondary)' } }));
-        const originalEdges = workloadsData.map_edges.map(e => ({ id: e.id, color: { color: 'var(--border-color)', highlight: 'var(--primary-color)' } }));
-        visNodes.update(originalNodes);
-        visEdges.update(originalEdges);
+        
+        const nodesToUpdate = visNodes.get().map(node => {
+            return { id: node.id, color: null, font: { color: 'var(--text-secondary)' }, label: workloadsData.map_nodes.find(n => n.id === node.id).label };
+        });
+        visNodes.update(nodesToUpdate);
+        
+        const edgesToUpdate = visEdges.get().map(edge => {
+            return { id: edge.id, color: { color: 'var(--border-color)', highlight: 'var(--primary-color)' }, width: 1.5 };
+        });
+        visEdges.update(edgesToUpdate);
+        
         document.getElementById('graph-search').value = '';
+        visNetwork.fit(); // Recenter the view
     }
+    
+    // --- Pod Filtering ---
+    function setupPodFilters() {
+        if (!workloadsData || !workloadsData.pods) return;
+
+        const namespaceSelect = document.getElementById('pod-namespace-filter');
+        const uniqueNamespaces = [...new Set(workloadsData.pods.map(p => p.metadata.namespace))].sort();
+        namespaceSelect.innerHTML = '<option value="all">All Namespaces</option>' + uniqueNamespaces.map(ns => `<option value="${ns}">${ns}</option>`).join('');
+
+        const nameFilter = document.getElementById('pod-name-filter');
+        const statusFilter = document.getElementById('pod-status-filter');
+        
+        const applyFilters = () => {
+            const name = nameFilter.value.toLowerCase();
+            const namespace = namespaceSelect.value;
+            const status = statusFilter.value;
+            const podRows = document.querySelectorAll('#all-pods-table tbody tr');
+
+            podRows.forEach(row => {
+                const rowName = row.dataset.name;
+                const rowNamespace = row.dataset.namespace;
+                const rowStatus = row.dataset.status;
+
+                const nameMatch = rowName.includes(name);
+                const namespaceMatch = (namespace === 'all' || rowNamespace === namespace);
+                const statusMatch = (status === 'all' || rowStatus === status);
+
+                row.style.display = (nameMatch && namespaceMatch && statusMatch) ? '' : 'none';
+            });
+        };
+        
+        [nameFilter, namespaceSelect, statusFilter].forEach(el => {
+            el.addEventListener('input', applyFilters);
+            el.addEventListener('change', applyFilters);
+        });
+    }
+
 
     // --- Metrics and Charting Functions ---
     function getChartBaseOptions(stacked = false) {
@@ -500,22 +579,25 @@
     }
 
     function processAndRenderCharts(metricsData) {
-        renderChart('nodeStatusChart', [ {...metricsData.node_status_ready, label: 'Ready', color: '#198754' } ].filter(d => d.values.length > 0));
-        renderChart('containerRestartsChart', [ {...metricsData.container_restarts, label: 'Restarts', color: '#FFC107' } ].filter(d => d.values.length > 0));
-        renderChart('nodeCpuChart', [{...metricsData.node_cpu_utilization, label: 'CPU %', color: '#0D6EFD'}].filter(d => d.values.length > 0));
-        renderChart('nodeMemoryChart', [{...metricsData.node_memory_utilization, label: 'Memory %', color: '#6F42C1'}].filter(d => d.values.length > 0));
-        renderChart('nodeFsChart', [{...metricsData.node_filesystem_utilization, label: 'Filesystem %', color: '#198754'}].filter(d => d.values.length > 0));
-        renderChart('nodeNetworkChart', [ {...metricsData.node_network_rx_bytes, label: 'Received', color: '#0dcaf0'}, {...metricsData.node_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'} ].filter(d => d.values.length > 0));
-        renderChart('podCpuChart', [{...metricsData.pod_cpu_utilization, label: 'CPU %', color: '#0D6EFD'}].filter(d => d.values.length > 0));
-        renderChart('podMemoryChart', [{...metricsData.pod_memory_utilization, label: 'Memory %', color: '#6F42C1'}].filter(d => d.values.length > 0));
-        renderChart('podNetworkChart', [ {...metricsData.pod_network_rx_bytes, label: 'Received', color: '#0dcaf0'}, {...metricsData.pod_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'} ].filter(d => d.values.length > 0));
-        renderChart('podStatusChart', [ {...metricsData.pod_status_running, label: 'Running', color: '#198754'}, {...metricsData.pod_status_pending, label: 'Pending', color: '#FFC107'}, {...metricsData.pod_status_succeeded, label: 'Succeeded', color: '#0DCAF0'}, {...metricsData.pod_status_failed, label: 'Failed', color: '#DC3545'}, {...metricsData.pod_status_unknown, label: '#6C757D'} ].filter(d => d.values.length > 0), true);
-        renderChart('apiServerRequestsChart', [ {...metricsData.apiserver_request_total, label: 'Total Requests', color: '#0D6EFD'}, {...metricsData.apiserver_request_total_4xx, label: '4xx Errors', color: '#FFC107'}, {...metricsData.apiserver_request_total_5xx, label: '5xx Errors', color: '#DC3545'}, ].filter(d => d.values.length > 0));
-        renderChart('apiServerLatencyChart', [ {...metricsData.apiserver_request_latency_get, label: 'GET', color: '#198754'}, {...metricsData.apiserver_request_latency_list, label: 'LIST', color: '#20c997'}, {...metricsData.apiserver_request_latency_post, label: 'POST', color: '#0D6EFD'}, {...metricsData.apiserver_request_latency_put, label: 'PUT', color: '#FD7E14'}, {...metricsData.apiserver_request_latency_delete, label: 'DELETE', color: '#DC3545'}, ].filter(d => d.values.length > 0));
-        renderChart('apiServerStorageChart', [{...metricsData.apiserver_storage_objects, label: 'Objects', color: '#6f42c1'}].filter(d => d.values.length > 0));
-        renderChart('apiServerInflightChart', [ {...metricsData.apiserver_inflight_requests_mutating, label: 'Mutating', color: '#fd7e14'}, {...metricsData.apiserver_inflight_requests_readonly, label: 'Read-Only', color: '#0d6efd'} ].filter(d => d.values.length > 0));
-        renderChart('schedulerAttemptsChart', [ {...metricsData.scheduler_schedule_attempts_success, label: 'Success', color: '#198754'}, {...metricsData.scheduler_schedule_attempts_failure, label: 'Failure', color: '#FFC107'}, {...metricsData.scheduler_schedule_attempts_error, label: 'Error', color: '#DC3545'} ].filter(d => d.values.length > 0), true);
-        renderChart('schedulerPendingPodsChart', [{...metricsData.scheduler_pending_pods, label: 'Pending Pods', color: '#ffc107'}].filter(d => d.values.length > 0));
+        if (!metricsData || Object.keys(metricsData).length === 0) return;
+        const hasData = (key) => metricsData[key] && metricsData[key].values && metricsData[key].values.length > 0;
+        
+        if (hasData('node_status_ready')) renderChart('nodeStatusChart', [ {...metricsData.node_status_ready, label: 'Ready', color: '#198754' } ]);
+        if (hasData('container_restarts')) renderChart('containerRestartsChart', [ {...metricsData.container_restarts, label: 'Restarts', color: '#FFC107' } ]);
+        if (hasData('node_cpu_utilization')) renderChart('nodeCpuChart', [{...metricsData.node_cpu_utilization, label: 'CPU %', color: '#0D6EFD'}]);
+        if (hasData('node_memory_utilization')) renderChart('nodeMemoryChart', [{...metricsData.node_memory_utilization, label: 'Memory %', color: '#6F42C1'}]);
+        if (hasData('node_filesystem_utilization')) renderChart('nodeFsChart', [{...metricsData.node_filesystem_utilization, label: 'Filesystem %', color: '#198754'}]);
+        if (hasData('node_network_rx_bytes') || hasData('node_network_tx_bytes')) renderChart('nodeNetworkChart', [ {...metricsData.node_network_rx_bytes, label: 'Received', color: '#0dcaf0'}, {...metricsData.node_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'} ].filter(d => d.values.length > 0));
+        if (hasData('pod_cpu_utilization')) renderChart('podCpuChart', [{...metricsData.pod_cpu_utilization, label: 'CPU %', color: '#0D6EFD'}]);
+        if (hasData('pod_memory_utilization')) renderChart('podMemoryChart', [{...metricsData.pod_memory_utilization, label: 'Memory %', color: '#6F42C1'}]);
+        if (hasData('pod_network_rx_bytes') || hasData('pod_network_tx_bytes')) renderChart('podNetworkChart', [ {...metricsData.pod_network_rx_bytes, label: 'Received', color: '#0dcaf0'}, {...metricsData.pod_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'} ].filter(d => d.values.length > 0));
+        if (hasData('pod_status_running')) renderChart('podStatusChart', [ {...metricsData.pod_status_running, label: 'Running', color: '#198754'}, {...metricsData.pod_status_pending, label: 'Pending', color: '#FFC107'}, {...metricsData.pod_status_succeeded, label: 'Succeeded', color: '#0DCAF0'}, {...metricsData.pod_status_failed, label: 'Failed', color: '#DC3545'}, {...metricsData.pod_status_unknown, label: '#6C757D'} ].filter(d => d.values && d.values.length > 0), true);
+        if (hasData('apiserver_request_total')) renderChart('apiServerRequestsChart', [ {...metricsData.apiserver_request_total, label: 'Total Requests', color: '#0D6EFD'}, {...metricsData.apiserver_request_total_4xx, label: '4xx Errors', color: '#FFC107'}, {...metricsData.apiserver_request_total_5xx, label: '5xx Errors', color: '#DC3545'}, ].filter(d => d.values && d.values.length > 0));
+        if (hasData('apiserver_request_latency_get')) renderChart('apiServerLatencyChart', [ {...metricsData.apiserver_request_latency_get, label: 'GET', color: '#198754'}, {...metricsData.apiserver_request_latency_list, label: 'LIST', color: '#20c997'}, {...metricsData.apiserver_request_latency_post, label: 'POST', color: '#0D6EFD'}, {...metricsData.apiserver_request_latency_put, label: 'PUT', color: '#FD7E14'}, {...metricsData.apiserver_request_latency_delete, label: 'DELETE', color: '#DC3545'}, ].filter(d => d.values && d.values.length > 0));
+        if (hasData('apiserver_storage_objects')) renderChart('apiServerStorageChart', [{...metricsData.apiserver_storage_objects, label: 'Objects', color: '#6f42c1'}]);
+        if (hasData('apiserver_inflight_requests_mutating')) renderChart('apiServerInflightChart', [ {...metricsData.apiserver_inflight_requests_mutating, label: 'Mutating', color: '#fd7e14'}, {...metricsData.apiserver_inflight_requests_readonly, label: 'Read-Only', color: '#0d6efd'} ].filter(d => d.values && d.values.length > 0));
+        if (hasData('scheduler_schedule_attempts_success')) renderChart('schedulerAttemptsChart', [ {...metricsData.scheduler_schedule_attempts_success, label: 'Success', color: '#198754'}, {...metricsData.scheduler_schedule_attempts_failure, label: 'Failure', color: '#FFC107'}, {...metricsData.scheduler_schedule_attempts_error, label: 'Error', color: '#DC3545'} ].filter(d => d.values && d.values.length > 0), true);
+        if (hasData('scheduler_pending_pods')) renderChart('schedulerPendingPodsChart', [{...metricsData.scheduler_pending_pods, label: 'Pending Pods', color: '#ffc107'}]);
     }
     
     async function loadMetrics() {
