@@ -91,58 +91,6 @@
         <!-- Analysis & Insights Tab -->
         <div id="insights" class="tab-content">
             <div class="widget">
-                <div class="widget-header"><h2><i data-feather="thermometer"></i> Workload Anomaly Detection</h2></div>
-                <div class="widget-content" style="padding:0;">
-                    {% if cluster.analysis and cluster.analysis.anomalies %}
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead><tr><th>Pod</th><th>Namespace</th><th>Anomaly Type</th><th>Severity</th><th>Details</th></tr></thead>
-                                <tbody>
-                                {% for anom in cluster.analysis.anomalies %}
-                                    <tr>
-                                        <td>{{ anom.pod }}</td>
-                                        <td>{{ anom.namespace }}</td>
-                                        <td><span class="tag code">{{ anom.type }}</span></td>
-                                        <td><span class="severity-badge severity-{{ anom.severity.lower() }}">{{ anom.severity }}</span></td>
-                                        <td class="text-secondary" style="white-space: normal;">{{ anom.details }}</td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <p class="text-muted" style="text-align: center; padding: 2rem;">No workload anomalies detected.</p>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="widget">
-                <div class="widget-header"><h2><i data-feather="minimize-2"></i> Rightsizing Recommendations</h2></div>
-                <div class="widget-content" style="padding:0;">
-                     {% if cluster.analysis and cluster.analysis.rightsizing %}
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead><tr><th>Workload</th><th>Namespace</th><th>Metric</th><th>Current Request</th><th>Recommended Request</th></tr></thead>
-                                <tbody>
-                                {% for rec in cluster.analysis.rightsizing %}
-                                    <tr>
-                                        <td>{{ rec.workload }}</td>
-                                        <td>{{ rec.namespace }}</td>
-                                        <td><span class="tag code">{{ rec.metric }}</span></td>
-                                        <td>{{ rec.current_request }}</td>
-                                        <td><strong>{{ rec.recommended_request }}</strong></td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                     {% elif cluster.analysis and cluster.analysis.error %}
-                        <div class="error-message" style="margin: 1.5rem;">{{ cluster.analysis.error }}</div>
-                     {% else %}
-                        <p class="text-muted" style="text-align: center; padding: 2rem;">No specific rightsizing opportunities found at this time.</p>
-                     {% endif %}
-                </div>
-            </div>
-            <div class="widget">
                 <div class="widget-header"><h2><i data-feather="shield"></i> Security Best Practices</h2></div>
                 <div class="widget-content" style="padding:0;">
                     {% if cluster.security_insights %}

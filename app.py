@@ -261,4 +261,3 @@ async def api_get_cluster_metrics(account_id: str, region: str, cluster_name: st
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-
