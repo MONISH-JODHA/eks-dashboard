@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 
 {% block title %}Cluster Details: {{ cluster.name }}{% endblock %}
@@ -16,6 +17,45 @@
             border-top: none;
             border-radius: 0 0 var(--border-radius) var(--border-radius);
         }
+<<<<<<< Updated upstream
+=======
+
+        /* Enhanced visibility and styling for Vis.js navigation buttons */
+        .vis-navigation .vis-button {
+            width: 32px !important;
+            height: 32px !important;
+            padding: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 20px !important;
+            font-weight: bold;
+            color: var(--text-primary) !important;
+            background-color: var(--surface-color) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 6px !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+            transition: all 0.2s ease-in-out;
+            -webkit-font-smoothing: antialiased; /* Make symbols look better */
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .vis-navigation .vis-button:hover {
+            background-color: var(--bg-color) !important;
+            border-color: var(--primary-color) !important;
+            transform: translateY(-1px);
+        }
+        /* Add content to the buttons using pseudo-elements for reliability */
+        .vis-navigation .vis-button::before {
+            line-height: 1;
+        }
+        .vis-navigation .vis-button.vis-zoomIn::before { content: '+' !important; }
+        .vis-navigation .vis-button.vis-zoomOut::before { content: '−' !important; } /* Minus sign */
+        .vis-navigation .vis-button.vis-zoomExtends::before { content: '⤧' !important; } /* Fit to screen symbol */
+        .vis-navigation .vis-button.vis-up::before { content: '↑' !important; }
+        .vis-navigation .vis-button.vis-down::before { content: '↓' !important; }
+        .vis-navigation .vis-button.vis-left::before { content: '←' !important; }
+        .vis-navigation .vis-button.vis-right::before { content: '→' !important; }
+>>>>>>> Stashed changes
     </style>
 {% endblock %}
 
@@ -32,11 +72,16 @@
     <div class="tab-container">
         <div class="tab-nav">
             <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
+<<<<<<< Updated upstream
             <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="zap"></i>Analysis & Insights</button>
             <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
+=======
+>>>>>>> Stashed changes
             <button class="tab-link" onclick="openTab(event, 'compute')"><i data-feather="hard-drive"></i>Compute</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
+            <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
             <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="bar-chart-2"></i>Observability</button>
+            <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="zap"></i>Analysis & Insights</button>
         </div>
 
         <!-- Overview Tab -->
@@ -66,8 +111,8 @@
                 <div class="widget-content">
                      <div class="summary-grid">
                         <div><strong>VPC ID:</strong> <span class="code">{{ cluster.networking.vpcId or 'N/A' }}</span></div>
-                        <div><strong>Public Access:</strong> <span class="status-badge status-{{ 'failed' if cluster.networking.endpointPublicAccess else 'active' }}">{{ 'Enabled' if cluster.networking.endpointPublicAccess else 'Disabled' }}</span></div>
-                        <div><strong>Private Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPrivateAccess else 'failed' }}">{{ 'Enabled' if cluster.networking.endpointPrivateAccess else 'Disabled' }}</span></div>
+                        <div><strong>Endpoint Public Access:</strong> <span class="status-badge status-{{ 'failed' if cluster.networking.endpointPublicAccess else 'active' }}">{{ 'Enabled' if cluster.networking.endpointPublicAccess else 'Disabled' }}</span></div>
+                        <div><strong>Endpoint Private Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPrivateAccess else 'failed' }}">{{ 'Enabled' if cluster.networking.endpointPrivateAccess else 'Disabled' }}</span></div>
                         <div><strong>Subnets:</strong> <div class="tags-container" style="margin-top: 5px;">{% for id in cluster.networking.subnetIds %}<span class="tag code">{{ id }}</span>{% else %}<span>N/A</span>{% endfor %}</div></div>
                     </div>
                 </div>
@@ -88,6 +133,7 @@
             {% endif %}
         </div>
         
+<<<<<<< Updated upstream
         <!-- Analysis & Insights Tab -->
         <div id="insights" class="tab-content">
             <div class="widget">
@@ -213,6 +259,8 @@
              {% endif %}
         </div>
 
+=======
+>>>>>>> Stashed changes
         <!-- Compute Tab -->
         <div id="compute" class="tab-content">
             <div class="widget">
@@ -274,6 +322,102 @@
             </div>
         </div>
 
+        <!-- Workloads Tab -->
+        <div id="workloads" class="tab-content">
+            {% if (cluster.workloads is defined) and not cluster.workloads.error %}
+                <div class="widget">
+                    <div class="widget-header"><h2>Deployments</h2></div>
+                    <div class="widget-content" style="padding:0;">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Replicas</th></tr></thead>
+                                <tbody>
+                                    {% for dep in cluster.workloads.deployments %}
+                                    <tr>
+                                        <td>{{ dep.metadata.name }}</td>
+                                        <td>{{ dep.metadata.namespace }}</td>
+                                        <td><span class="status-badge status-{{ 'active' if dep.status and dep.status.readyReplicas == dep.spec.replicas else 'updating' }}">{{ (dep.status.readyReplicas or 0) if dep.status else 0 }}/{{ dep.spec.replicas }}</span></td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="3" class="text-muted" style="text-align:center; padding: 2rem;">No deployments found.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                 <div class="widget">
+                    <div class="widget-header"><h2>All Pods</h2></div>
+                    <div class="pod-filters-bar">
+                         <input type="text" id="pod-name-filter" placeholder="Filter by pod name...">
+                         <select id="pod-namespace-filter"></select>
+                         <select id="pod-status-filter">
+                             <option value="all">All Statuses</option>
+                             <option value="Running">Running</option>
+                             <option value="Pending">Pending</option>
+                             <option value="Succeeded">Succeeded</option>
+                             <option value="Failed">Failed</option>
+                             <option value="Unknown">Unknown</option>
+                         </select>
+                    </div>
+                    <div class="widget-content" style="padding:0;">
+                        <div class="table-container">
+                             <table class="data-table" id="all-pods-table">
+                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th></tr></thead>
+                                <tbody>
+                                    {% for pod in cluster.workloads.pods %}
+                                    <tr data-name="{{ pod.metadata.name.lower() }}" data-namespace="{{ pod.metadata.namespace }}" data-status="{{ pod.status.phase }}">
+                                        <td>{{ pod.metadata.name }}</td>
+                                        <td>{{ pod.metadata.namespace }}</td>
+                                        <td>{{ pod.spec.nodeName | default('N/A') }}</td>
+                                        <td><span class="status-badge status-{{ pod.status.phase.lower() }}">{{ pod.status.phase }}</span></td>
+                                        <td>{{ pod.restarts }}</td>
+                                        <td>{{ pod.age }}</td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="6" class="text-muted" style="text-align:center; padding: 2rem;">No pods found.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                 </div>
+                 <div class="widget">
+                    <div class="widget-header">
+                        <h2><i data-feather="share-2"></i> Workload Relationship Map</h2>
+                    </div>
+                    <div class="widget-content" style="padding: 0;">
+                        <div id="workload-graph-wrapper">
+                            <div class="graph-controls-header">
+                                <input type="text" id="graph-search" placeholder="Search for a resource by name...">
+                                <div class="graph-legend">
+                                    <div class="legend-item"><span class="legend-shape diamond"></span> Ingress</div>
+                                    <div class="legend-item"><span class="legend-shape square"></span> Service</div>
+                                    <div class="legend-item"><span class="legend-shape dot"></span> Pod</div>
+                                    <div class="legend-item"><span class="legend-shape triangle"></span> Node</div>
+                                </div>
+                            </div>
+                            <div id="workload-graph"></div>
+                            <div id="graph-info-panel">
+                                <div id="graph-info-header">
+                                    <h3 id="info-panel-title"></h3>
+                                    <button id="graph-info-close"><i data-feather="x"></i></button>
+                                </div>
+                                <div id="info-panel-body" class="info-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+             {% else %}
+                <div class="widget-content">
+                     <div class="error-message-box"><strong>Could not load workload data.</strong>
+                     <p>Could not connect to the Kubernetes API server or permissions are missing.
+                        {% if cluster.workloads.error %}Reason: {{ cluster.workloads.error }}{% endif %}
+                     </p></div>
+                 </div>
+             {% endif %}
+        </div>
+
         <!-- Observability Tab -->
         <div id="observability" class="tab-content">
             <div id="metrics-loading-state"><p class="text-muted">Loading metrics...</p></div>
@@ -313,6 +457,39 @@
                 </div>
             </div>
         </div>
+<<<<<<< Updated upstream
+=======
+        
+        <!-- Analysis & Insights Tab -->
+        <div id="insights" class="tab-content">
+            <div class="widget">
+                <div class="widget-header"><h2><i data-feather="shield"></i> Security Best Practices</h2></div>
+                <div class="widget-content" style="padding:0;">
+                    {% if cluster.security_insights %}
+                    <div class="table-container">
+                        <table class="data-table security-table">
+                             <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
+                             <tbody>
+                                {% for key, insight in cluster.security_insights.items() %}
+                                <tr>
+                                    <td>{{ insight.description }}</td>
+                                    <td style="text-align: center;"><span class="status-badge status-{{ 'active' if insight.status else 'failed' }}">{{ 'Passing' if insight.status else 'Attention' }}</span></td>
+                                    <td class="text-secondary">
+                                        {% if key == 'latest_platform_version' and not insight.status %}Current: {{ insight.current }}, Latest: {{ insight.latest }}{% elif key == 'logging_enabled' and not insight.status %}Missing: {{ insight.missing_logs | join(', ') }}{% else %}-{% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                             </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted" style="text-align:center; padding: 2rem;">Security insights could not be generated for this cluster.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+>>>>>>> Stashed changes
     </div>
     {% endif %}
 {% endblock %}
@@ -378,8 +555,36 @@
                 pod: { color: { background: '#198754', border: '#b3d8c6' }, shape: 'dot' },
                 node: { color: { background: '#6C757D', border: '#cfd2d4' }, shape: 'triangle', icon: { face: 'Feather', code: '\uf1b2', size: 50, color: 'white' } },
             },
-            physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -50, centralGravity: 0.005, springLength: 250, springConstant: 0.18, avoidOverlap: 1 }, maxVelocity: 150, minVelocity: 0.75, stabilization: { iterations: 150, fit: true }, },
-            interaction: { tooltipDelay: 200, hideEdgesOnDrag: true, hover: true, navigationButtons: true },
+            physics: {
+                solver: 'forceAtlas2Based',
+                forceAtlas2Based: {
+                    gravitationalConstant: -45,
+                    centralGravity: 0.01,
+                    springLength: 280,
+                    springConstant: 0.15,
+                    avoidOverlap: 0.8
+                },
+                maxVelocity: 140,
+                minVelocity: 0.75,
+                stabilization: {
+                    iterations: 200,
+                    fit: true
+                },
+            },
+            interaction: {
+                dragNodes: true,
+                dragView: true,
+                hover: true,
+                zoomView: true,
+                tooltipDelay: 200,
+                hideEdgesOnDrag: true,
+                navigationButtons: true,
+                keyboard: {
+                    enabled: true,
+                    speed: { x: 10, y: 10, zoom: 0.02 },
+                    bindToWindow: true
+                }
+            },
             layout: { improvedLayout: true }
         };
         visNetwork = new vis.Network(container, data, options);
@@ -533,18 +738,31 @@
 
     // --- Metrics and Charting Functions ---
     function getChartBaseOptions(stacked = false) {
+        // Get CSS variable values for a robust theme-aware chart
+        const computedStyle = getComputedStyle(document.documentElement);
+        const surfaceColor = computedStyle.getPropertyValue('--surface-color').trim();
+        const textSecondary = computedStyle.getPropertyValue('--text-secondary').trim();
+        const textPrimary = computedStyle.getPropertyValue('--text-primary').trim();
+        const borderColor = computedStyle.getPropertyValue('--border-color').trim();
+
         return {
             responsive: true, maintainAspectRatio: false,
             scales: {
-                x: { type: 'time', time: { unit: 'hour', displayFormats: { hour: 'HH:mm' }}, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border-color)' }},
-                y: { beginAtZero: true, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border-color)' }, stacked: stacked }
+                x: { type: 'time', time: { unit: 'hour', displayFormats: { hour: 'HH:mm' }}, ticks: { color: textSecondary }, grid: { color: borderColor }},
+                y: { beginAtZero: true, ticks: { color: textSecondary }, grid: { color: borderColor }, stacked: stacked }
             },
             plugins: { 
-                legend: { position: 'bottom', labels: { color: 'var(--text-secondary)', usePointStyle: true, boxHeight: 8, padding: 20 } },
+                legend: { position: 'bottom', labels: { color: textSecondary, usePointStyle: true, boxHeight: 8, padding: 20 } },
                 tooltip: {
                     mode: 'index', intersect: false,
-                    backgroundColor: 'var(--surface-color)', titleColor: 'var(--text-secondary)', bodyColor: 'var(--text-primary)',
-                    bodyFont: { weight: 'bold' }, borderColor: 'var(--border-color)', borderWidth: 1,
+                    backgroundColor: surfaceColor || '#FFFFFF', 
+                    titleColor: textSecondary || '#6C757D', 
+                    bodyColor: textPrimary || '#212529',
+                    bodyFont: { weight: 'bold' }, 
+                    borderColor: borderColor || '#E9ECEF', 
+                    borderWidth: 1,
+                    padding: 12,
+                    cornerRadius: 6,
                     callbacks: {
                         label: function(context) {
                             let label = context.dataset.label || '';
