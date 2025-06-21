@@ -255,6 +255,8 @@ async def api_upgrade_nodegroup(request: Request, user: dict = Depends(get_curre
 @app.get("/api/metrics/{account_id}/{region}/{cluster_name}", tags=["API"])
 async def api_get_cluster_metrics(account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
     if isinstance(user, JSONResponse): return user
+    # Assume role for the target account, even if it's the same as the app's account
+    # as the role may have specific permissions for CloudWatch.
     role_arn = get_role_arn_for_account(account_id)
     metrics = get_cluster_metrics(account_id, region, cluster_name, role_arn)
     if 'error' in metrics:

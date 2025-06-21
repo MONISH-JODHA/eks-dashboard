@@ -1,4 +1,3 @@
-
 {% extends "base.html" %}
 
 {% block title %}Cluster Details: {{ cluster.name }}{% endblock %}
@@ -17,37 +16,36 @@
             border-top: none;
             border-radius: 0 0 var(--border-radius) var(--border-radius);
         }
-<<<<<<< Updated upstream
-=======
+        .log-status-list {
+            list-style-type: none; padding: 0; margin: 0;
+        }
+        .log-status-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);
+        }
+        .log-status-item:last-child { border-bottom: none; }
+        .log-name { font-weight: 500; }
+        .no-data-message {
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            height: 100%; min-height: 250px; text-align: center; color: var(--text-secondary);
+        }
+        .no-data-message p { margin: 0.25rem 0; }
 
         /* Enhanced visibility and styling for Vis.js navigation buttons */
         .vis-navigation .vis-button {
-            width: 32px !important;
-            height: 32px !important;
-            padding: 0 !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            font-size: 20px !important;
-            font-weight: bold;
-            color: var(--text-primary) !important;
-            background-color: var(--surface-color) !important;
-            border: 1px solid var(--border-color) !important;
-            border-radius: 6px !important;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+            width: 32px !important; height: 32px !important; padding: 0 !important;
+            display: flex !important; align-items: center !important; justify-content: center !important;
+            font-size: 20px !important; font-weight: bold; color: var(--text-primary) !important;
+            background-color: var(--surface-color) !important; border: 1px solid var(--border-color) !important;
+            border-radius: 6px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
             transition: all 0.2s ease-in-out;
-            -webkit-font-smoothing: antialiased; /* Make symbols look better */
-            -moz-osx-font-smoothing: grayscale;
+            -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
         }
         .vis-navigation .vis-button:hover {
-            background-color: var(--bg-color) !important;
-            border-color: var(--primary-color) !important;
+            background-color: var(--bg-color) !important; border-color: var(--primary-color) !important;
             transform: translateY(-1px);
         }
-        /* Add content to the buttons using pseudo-elements for reliability */
-        .vis-navigation .vis-button::before {
-            line-height: 1;
-        }
+        .vis-navigation .vis-button::before { line-height: 1; }
         .vis-navigation .vis-button.vis-zoomIn::before { content: '+' !important; }
         .vis-navigation .vis-button.vis-zoomOut::before { content: '−' !important; } /* Minus sign */
         .vis-navigation .vis-button.vis-zoomExtends::before { content: '⤧' !important; } /* Fit to screen symbol */
@@ -55,7 +53,6 @@
         .vis-navigation .vis-button.vis-down::before { content: '↓' !important; }
         .vis-navigation .vis-button.vis-left::before { content: '←' !important; }
         .vis-navigation .vis-button.vis-right::before { content: '→' !important; }
->>>>>>> Stashed changes
     </style>
 {% endblock %}
 
@@ -72,11 +69,6 @@
     <div class="tab-container">
         <div class="tab-nav">
             <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
-<<<<<<< Updated upstream
-            <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="zap"></i>Analysis & Insights</button>
-            <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
-=======
->>>>>>> Stashed changes
             <button class="tab-link" onclick="openTab(event, 'compute')"><i data-feather="hard-drive"></i>Compute</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
             <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
@@ -133,134 +125,6 @@
             {% endif %}
         </div>
         
-<<<<<<< Updated upstream
-        <!-- Analysis & Insights Tab -->
-        <div id="insights" class="tab-content">
-            <div class="widget">
-                <div class="widget-header"><h2><i data-feather="shield"></i> Security Best Practices</h2></div>
-                <div class="widget-content" style="padding:0;">
-                    {% if cluster.security_insights %}
-                    <div class="table-container">
-                        <table class="data-table security-table">
-                             <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
-                             <tbody>
-                                {% for key, insight in cluster.security_insights.items() %}
-                                <tr>
-                                    <td>{{ insight.description }}</td>
-                                    <td style="text-align: center;"><span class="status-badge status-{{ 'active' if insight.status else 'failed' }}">{{ 'Passing' if insight.status else 'Attention' }}</span></td>
-                                    <td class="text-secondary">
-                                        {% if key == 'latest_platform_version' and not insight.status %}Current: {{ insight.current }}, Latest: {{ insight.latest }}{% elif key == 'logging_enabled' and not insight.status %}Missing: {{ insight.missing_logs | join(', ') }}{% else %}-{% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                             </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <p class="text-muted" style="text-align:center; padding: 2rem;">Security insights could not be generated for this cluster.</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-        
-        <!-- Workloads Tab -->
-        <div id="workloads" class="tab-content">
-            {% if (cluster.workloads is defined) and not cluster.workloads.error %}
-                <div class="widget">
-                    <div class="widget-header">
-                        <h2><i data-feather="share-2"></i> Workload Relationship Map</h2>
-                    </div>
-                    <div class="widget-content" style="padding: 0;">
-                        <div id="workload-graph-wrapper">
-                            <div class="graph-controls-header">
-                                <input type="text" id="graph-search" placeholder="Search for a resource by name...">
-                                <div class="graph-legend">
-                                    <div class="legend-item"><span class="legend-shape diamond"></span> Ingress</div>
-                                    <div class="legend-item"><span class="legend-shape square"></span> Service</div>
-                                    <div class="legend-item"><span class="legend-shape dot"></span> Pod</div>
-                                    <div class="legend-item"><span class="legend-shape triangle"></span> Node</div>
-                                </div>
-                            </div>
-                            <div id="workload-graph"></div>
-                            <div id="graph-info-panel">
-                                <div id="graph-info-header">
-                                    <h3 id="info-panel-title"></h3>
-                                    <button id="graph-info-close"><i data-feather="x"></i></button>
-                                </div>
-                                <div id="info-panel-body" class="info-grid"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="widget">
-                    <div class="widget-header"><h2>Deployments</h2></div>
-                    <div class="widget-content" style="padding:0;">
-                        <div class="table-container">
-                            <table class="data-table">
-                                <thead><tr><th>Name</th><th>Namespace</th><th>Replicas</th></tr></thead>
-                                <tbody>
-                                    {% for dep in cluster.workloads.deployments %}
-                                    <tr>
-                                        <td>{{ dep.metadata.name }}</td>
-                                        <td>{{ dep.metadata.namespace }}</td>
-                                        <td><span class="status-badge status-{{ 'active' if dep.status and dep.status.readyReplicas == dep.spec.replicas else 'updating' }}">{{ (dep.status.readyReplicas or 0) if dep.status else 0 }}/{{ dep.spec.replicas }}</span></td>
-                                    </tr>
-                                    {% else %}
-                                    <tr><td colspan="3" class="text-muted" style="text-align:center; padding: 2rem;">No deployments found.</td></tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                 <div class="widget">
-                    <div class="widget-header"><h2>All Pods</h2></div>
-                    <div class="pod-filters-bar">
-                         <input type="text" id="pod-name-filter" placeholder="Filter by pod name...">
-                         <select id="pod-namespace-filter"></select>
-                         <select id="pod-status-filter">
-                             <option value="all">All Statuses</option>
-                             <option value="Running">Running</option>
-                             <option value="Pending">Pending</option>
-                             <option value="Succeeded">Succeeded</option>
-                             <option value="Failed">Failed</option>
-                             <option value="Unknown">Unknown</option>
-                         </select>
-                    </div>
-                    <div class="widget-content" style="padding:0;">
-                        <div class="table-container">
-                             <table class="data-table" id="all-pods-table">
-                                <thead><tr><th>Name</th><th>Namespace</th><th>Node</th><th>Status</th><th>Restarts</th><th>Age</th></tr></thead>
-                                <tbody>
-                                    {% for pod in cluster.workloads.pods %}
-                                    <tr data-name="{{ pod.metadata.name.lower() }}" data-namespace="{{ pod.metadata.namespace }}" data-status="{{ pod.status.phase }}">
-                                        <td>{{ pod.metadata.name }}</td>
-                                        <td>{{ pod.metadata.namespace }}</td>
-                                        <td>{{ pod.spec.nodeName | default('N/A') }}</td>
-                                        <td><span class="status-badge status-{{ pod.status.phase.lower() }}">{{ pod.status.phase }}</span></td>
-                                        <td>{{ pod.restarts }}</td>
-                                        <td>{{ pod.age }}</td>
-                                    </tr>
-                                    {% else %}
-                                    <tr><td colspan="6" class="text-muted" style="text-align:center; padding: 2rem;">No pods found.</td></tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                 </div>
-             {% else %}
-                <div class="widget-content">
-                     <div class="error-message-box"><strong>Could not load workload data.</strong>
-                     <p>Could not connect to the Kubernetes API server or permissions are missing.
-                        {% if cluster.workloads.error %}Reason: {{ cluster.workloads.error }}{% endif %}
-                     </p></div>
-                 </div>
-             {% endif %}
-        </div>
-
-=======
->>>>>>> Stashed changes
         <!-- Compute Tab -->
         <div id="compute" class="tab-content">
             <div class="widget">
@@ -325,6 +189,32 @@
         <!-- Workloads Tab -->
         <div id="workloads" class="tab-content">
             {% if (cluster.workloads is defined) and not cluster.workloads.error %}
+                 <div class="widget">
+                    <div class="widget-header">
+                        <h2><i data-feather="share-2"></i> Workload Relationship Map</h2>
+                    </div>
+                    <div class="widget-content" style="padding: 0;">
+                        <div id="workload-graph-wrapper">
+                            <div class="graph-controls-header">
+                                <input type="text" id="graph-search" placeholder="Search for a resource by name...">
+                                <div class="graph-legend">
+                                    <div class="legend-item"><span class="legend-shape diamond"></span> Ingress</div>
+                                    <div class="legend-item"><span class="legend-shape square"></span> Service</div>
+                                    <div class="legend-item"><span class="legend-shape dot"></span> Pod</div>
+                                    <div class="legend-item"><span class="legend-shape triangle"></span> Node</div>
+                                </div>
+                            </div>
+                            <div id="workload-graph"></div>
+                            <div id="graph-info-panel">
+                                <div id="graph-info-header">
+                                    <h3 id="info-panel-title"></h3>
+                                    <button id="graph-info-close"><i data-feather="x"></i></button>
+                                </div>
+                                <div id="info-panel-body" class="info-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div class="widget">
                     <div class="widget-header"><h2>Deployments</h2></div>
                     <div class="widget-content" style="padding:0;">
@@ -382,32 +272,6 @@
                         </div>
                     </div>
                  </div>
-                 <div class="widget">
-                    <div class="widget-header">
-                        <h2><i data-feather="share-2"></i> Workload Relationship Map</h2>
-                    </div>
-                    <div class="widget-content" style="padding: 0;">
-                        <div id="workload-graph-wrapper">
-                            <div class="graph-controls-header">
-                                <input type="text" id="graph-search" placeholder="Search for a resource by name...">
-                                <div class="graph-legend">
-                                    <div class="legend-item"><span class="legend-shape diamond"></span> Ingress</div>
-                                    <div class="legend-item"><span class="legend-shape square"></span> Service</div>
-                                    <div class="legend-item"><span class="legend-shape dot"></span> Pod</div>
-                                    <div class="legend-item"><span class="legend-shape triangle"></span> Node</div>
-                                </div>
-                            </div>
-                            <div id="workload-graph"></div>
-                            <div id="graph-info-panel">
-                                <div id="graph-info-header">
-                                    <h3 id="info-panel-title"></h3>
-                                    <button id="graph-info-close"><i data-feather="x"></i></button>
-                                </div>
-                                <div id="info-panel-body" class="info-grid"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
              {% else %}
                 <div class="widget-content">
                      <div class="error-message-box"><strong>Could not load workload data.</strong>
@@ -423,42 +287,50 @@
             <div id="metrics-loading-state"><p class="text-muted">Loading metrics...</p></div>
             <div id="metrics-error-state" style="display: none;"><p class="error-message">Could not load metrics data.</p></div>
             
-            <div class="metrics-container">
-                <h3>Cluster Health Summary</h3>
+            <div class="metrics-container" style="display: none;">
+                <h3 class="section-title">Cluster Health Summary</h3>
                 <div class="metrics-grid-2col">
                     <div class="widget"><div class="widget-header"><h2>Node Status</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeStatusChart"></canvas></div></div>
                     <div class="widget"><div class="widget-header"><h2>Container Restarts (Sum)</h2></div><div class="widget-content chart-widget-content"><canvas id="containerRestartsChart"></canvas></div></div>
                 </div>
                 
-                <h3>Node Performance</h3>
+                <h3 class="section-title">Nodes Status and Capacity</h3>
+                <div class="metrics-grid-2col">
+                    <div class="widget"><div class="widget-header"><h2>Number of Ready Nodes</h2></div><div class="widget-content chart-widget-content"><canvas id="numReadyNodesChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>Nodes Error Condition</h2></div><div class="widget-content chart-widget-content"><canvas id="nodesErrorConditionChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>Running Pods per Node</h2></div><div class="widget-content chart-widget-content"><canvas id="runningPodsPerNodeChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>Allocatable Pods on Nodes Utilization</h2></div><div class="widget-content chart-widget-content"><canvas id="allocatablePodsUtilizationChart"></canvas></div></div>
+                </div>
+
+                <h3 class="section-title">Node Performance</h3>
                 <div class="metrics-grid-2col">
                     <div class="widget"><div class="widget-header"><h2>Node CPU Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeCpuChart"></canvas></div></div>
                     <div class="widget"><div class="widget-header"><h2>Node Memory Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeMemoryChart"></canvas></div></div>
-                    <div class="widget"><div class="widget-header"><h2>Node Network (Bytes/s)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeNetworkChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>Node Network Total Bytes (Bytes/s)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeNetworkChart"></canvas></div></div>
                     <div class="widget"><div class="widget-header"><h2>Node Filesystem Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeFsChart"></canvas></div></div>
                 </div>
 
-                <h3>Pod Performance</h3>
+                <h3 class="section-title">Pod Performance and Limits</h3>
                  <div class="metrics-grid-2col">
                     <div class="widget"><div class="widget-header"><h2>Pod CPU Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podCpuChart"></canvas></div></div>
                     <div class="widget"><div class="widget-header"><h2>Pod Memory Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podMemoryChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>Pod CPU Utilization over Pod Limit (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podCpuOverPodLimitChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>Pod Memory Utilization over Pod Limit (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podMemoryOverPodLimitChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>Pod CPU Utilization over Node Limit (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podCpuOverNodeLimitChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>Pod Memory Utilization over Node Limit (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podMemoryOverNodeLimitChart"></canvas></div></div>
                     <div class="widget"><div class="widget-header"><h2>Pod Status</h2></div><div class="widget-content chart-widget-content"><canvas id="podStatusChart"></canvas></div></div>
                     <div class="widget"><div class="widget-header"><h2>Pod Network (Bytes/s)</h2></div><div class="widget-content chart-widget-content"><canvas id="podNetworkChart"></canvas></div></div>
                 </div>
                 
-                <h3>Control Plane</h3>
+                <h3 class="section-title">Control Plane</h3>
                 <div class="metrics-grid-2col">
                     <div class="widget"><div class="widget-header"><h2>API Server Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="apiServerRequestsChart"></canvas></div></div>
-                    <div class="widget"><div class="widget-header"><h2>API Server Request Latency (s)</h2></div><div class="widget-content chart-widget-content"><canvas id="apiServerLatencyChart"></canvas></div></div>
-                    <div class="widget"><div class="widget-header"><h2>API Server Storage Objects</h2></div><div class="widget-content chart-widget-content"><canvas id="apiServerStorageChart"></canvas></div></div>
-                    <div class="widget"><div class="widget-header"><h2>API Server In-Flight Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="apiServerInflightChart"></canvas></div></div>
-                    <div class="widget"><div class="widget-header"><h2>Scheduler Attempts</h2></div><div class="widget-content chart-widget-content"><canvas id="schedulerAttemptsChart"></canvas></div></div>
-                    <div class="widget"><div class="widget-header"><h2>Scheduler Pending Pods</h2></div><div class="widget-content chart-widget-content"><canvas id="schedulerPendingPodsChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>REST Client Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="restClientRequestsChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>API Server Admission / ETCD Duration</h2></div><div class="widget-content chart-widget-content"><canvas id="admissionEtcdDurationChart"></canvas></div></div>
+                    <div class="widget"><div class="widget-header"><h2>API Server Storage</h2></div><div class="widget-content chart-widget-content"><canvas id="apiServerStorageChart"></canvas></div></div>
                 </div>
             </div>
         </div>
-<<<<<<< Updated upstream
-=======
         
         <!-- Analysis & Insights Tab -->
         <div id="insights" class="tab-content">
@@ -470,12 +342,12 @@
                         <table class="data-table security-table">
                              <thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>
                              <tbody>
-                                {% for key, insight in cluster.security_insights.items() %}
+                                {% for key, insight in cluster.security_insights.items() if key != 'logging_enabled' %}
                                 <tr>
                                     <td>{{ insight.description }}</td>
                                     <td style="text-align: center;"><span class="status-badge status-{{ 'active' if insight.status else 'failed' }}">{{ 'Passing' if insight.status else 'Attention' }}</span></td>
                                     <td class="text-secondary">
-                                        {% if key == 'latest_platform_version' and not insight.status %}Current: {{ insight.current }}, Latest: {{ insight.latest }}{% elif key == 'logging_enabled' and not insight.status %}Missing: {{ insight.missing_logs | join(', ') }}{% else %}-{% endif %}
+                                        {% if key == 'latest_platform_version' and not insight.status %}Current: {{ insight.current }}, Latest: {{ insight.latest }}{% else %}-{% endif %}
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -487,9 +359,31 @@
                     {% endif %}
                 </div>
             </div>
+
+            <div class="widget">
+                <div class="widget-header"><h2><i data-feather="align-left"></i> Control Plane Logging</h2></div>
+                <div class="widget-content">
+                    {% if cluster.security_insights and cluster.security_insights.logging_enabled %}
+                        {% set logging_info = cluster.security_insights.logging_enabled %}
+                        <ul class="log-status-list">
+                        {% for log_type in logging_info.all_logs %}
+                            <li class="log-status-item">
+                                <span class="log-name">{{ log_type | title }}</span>
+                                {% if log_type in logging_info.enabled_logs %}
+                                    <span class="status-badge status-active">Enabled</span>
+                                {% else %}
+                                    <span class="status-badge status-failed">Disabled</span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                        </ul>
+                    {% else %}
+                    <p class="text-muted" style="text-align:center;">Logging status information is not available.</p>
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
->>>>>>> Stashed changes
     </div>
     {% endif %}
 {% endblock %}
@@ -537,12 +431,10 @@
             container.innerHTML = '<p class="text-muted" style="text-align:center; padding: 50px;">Could not render workload graph. Data is unavailable.</p>';
             return;
         }
-
         const nodes = workloadsData.map_nodes.map(n => {
-            originalNodeStyles[n.id] = { group: n.group }; // Store original group for color reset
+            originalNodeStyles[n.id] = { group: n.group };
             return n;
         });
-
         visNodes = new vis.DataSet(nodes);
         visEdges = new vis.DataSet(workloadsData.map_edges);
         const data = { nodes: visNodes, edges: visEdges };
@@ -557,33 +449,13 @@
             },
             physics: {
                 solver: 'forceAtlas2Based',
-                forceAtlas2Based: {
-                    gravitationalConstant: -45,
-                    centralGravity: 0.01,
-                    springLength: 280,
-                    springConstant: 0.15,
-                    avoidOverlap: 0.8
-                },
-                maxVelocity: 140,
-                minVelocity: 0.75,
-                stabilization: {
-                    iterations: 200,
-                    fit: true
-                },
+                forceAtlas2Based: { gravitationalConstant: -45, centralGravity: 0.01, springLength: 280, springConstant: 0.15, avoidOverlap: 0.8 },
+                maxVelocity: 140, minVelocity: 0.75,
+                stabilization: { iterations: 200, fit: true },
             },
             interaction: {
-                dragNodes: true,
-                dragView: true,
-                hover: true,
-                zoomView: true,
-                tooltipDelay: 200,
-                hideEdgesOnDrag: true,
-                navigationButtons: true,
-                keyboard: {
-                    enabled: true,
-                    speed: { x: 10, y: 10, zoom: 0.02 },
-                    bindToWindow: true
-                }
+                dragNodes: true, dragView: true, hover: true, zoomView: true, tooltipDelay: 200, hideEdgesOnDrag: true,
+                navigationButtons: true, keyboard: { enabled: true, speed: { x: 10, y: 10, zoom: 0.02 }, bindToWindow: true }
             },
             layout: { improvedLayout: true }
         };
@@ -594,7 +466,6 @@
     function setupGraphInteractions() {
         const infoPanel = document.getElementById('graph-info-panel');
         const searchInput = document.getElementById('graph-search');
-
         visNetwork.on('click', (properties) => {
             if (properties.nodes.length > 0) {
                 const nodeId = properties.nodes[0];
@@ -606,7 +477,6 @@
             }
         });
         document.getElementById('graph-info-close').addEventListener('click', resetHighlightAndPanel);
-        
         searchInput.addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
             if (!searchTerm) {
@@ -627,7 +497,6 @@
         const titleEl = document.getElementById('info-panel-title');
         const bodyEl = document.getElementById('info-panel-body');
         titleEl.textContent = `${details.kind}: ${details.name}`;
-        
         let html = '';
         for (const [key, value] of Object.entries(details)) {
             if (key === 'kind' || key === 'name') continue;
@@ -648,174 +517,303 @@
 
     function highlightNodeAndConnections(nodeId) {
         const allNodes = visNodes.get({ returnType: 'Object' });
-        const allEdges = visEdges.get();
         const connectedNodes = visNetwork.getConnectedNodes(nodeId);
-        connectedNodes.push(nodeId); // Also include the main node
-
+        connectedNodes.push(nodeId);
         const nodesToUpdate = [];
         for (const id in allNodes) {
             const node = allNodes[id];
             if (!connectedNodes.includes(id)) {
                 node.color = { border: 'rgba(200, 200, 200, 0.2)', background: 'rgba(240, 240, 240, 0.2)' };
                 node.font = { color: 'rgba(200, 200, 200, 0.5)' };
-                node.label = undefined; // Hide label of non-connected nodes
+                node.label = undefined;
             } else {
-                 node.color = null; // Revert to group color
+                 node.color = null;
                  node.font = { color: 'var(--text-secondary)' };
                  node.label = workloadsData.map_nodes.find(n => n.id === id).label;
             }
             nodesToUpdate.push(node);
         }
         visNodes.update(nodesToUpdate);
-
-        const edgesToUpdate = [];
-        allEdges.forEach(edge => {
-            if (edge.from === nodeId || edge.to === nodeId) {
-                 edge.color = { color: 'var(--primary-color)', highlight: 'var(--primary-color)' };
-                 edge.width = 2.5;
-            } else {
-                edge.color = 'rgba(200, 200, 200, 0.2)';
-                edge.width = 1;
-            }
-            edgesToUpdate.push(edge);
-        });
-        visEdges.update(edgesToUpdate);
     }
     
     function resetHighlightAndPanel() {
         document.getElementById('graph-info-panel').classList.remove('visible');
-        
-        const nodesToUpdate = visNodes.get().map(node => {
-            return { id: node.id, color: null, font: { color: 'var(--text-secondary)' }, label: workloadsData.map_nodes.find(n => n.id === node.id).label };
-        });
+        const nodesToUpdate = visNodes.get().map(node => ({ id: node.id, color: null, font: { color: 'var(--text-secondary)' }, label: workloadsData.map_nodes.find(n => n.id === node.id).label }));
         visNodes.update(nodesToUpdate);
-        
-        const edgesToUpdate = visEdges.get().map(edge => {
-            return { id: edge.id, color: { color: 'var(--border-color)', highlight: 'var(--primary-color)' }, width: 1.5 };
-        });
-        visEdges.update(edgesToUpdate);
-        
         document.getElementById('graph-search').value = '';
-        visNetwork.fit(); // Recenter the view
+        visNetwork.fit();
     }
     
     // --- Pod Filtering ---
     function setupPodFilters() {
         if (!workloadsData || !workloadsData.pods) return;
-
         const namespaceSelect = document.getElementById('pod-namespace-filter');
         const uniqueNamespaces = [...new Set(workloadsData.pods.map(p => p.metadata.namespace))].sort();
         namespaceSelect.innerHTML = '<option value="all">All Namespaces</option>' + uniqueNamespaces.map(ns => `<option value="${ns}">${ns}</option>`).join('');
-
         const nameFilter = document.getElementById('pod-name-filter');
         const statusFilter = document.getElementById('pod-status-filter');
-        
         const applyFilters = () => {
             const name = nameFilter.value.toLowerCase();
             const namespace = namespaceSelect.value;
             const status = statusFilter.value;
             const podRows = document.querySelectorAll('#all-pods-table tbody tr');
-
             podRows.forEach(row => {
-                const rowName = row.dataset.name;
-                const rowNamespace = row.dataset.namespace;
-                const rowStatus = row.dataset.status;
-
+                const rowName = row.dataset.name, rowNamespace = row.dataset.namespace, rowStatus = row.dataset.status;
                 const nameMatch = rowName.includes(name);
                 const namespaceMatch = (namespace === 'all' || rowNamespace === namespace);
                 const statusMatch = (status === 'all' || rowStatus === status);
-
                 row.style.display = (nameMatch && namespaceMatch && statusMatch) ? '' : 'none';
             });
         };
-        
-        [nameFilter, namespaceSelect, statusFilter].forEach(el => {
-            el.addEventListener('input', applyFilters);
-            el.addEventListener('change', applyFilters);
-        });
+        [nameFilter, namespaceSelect, statusFilter].forEach(el => el.addEventListener('change', applyFilters));
+        nameFilter.addEventListener('input', applyFilters);
     }
 
-
     // --- Metrics and Charting Functions ---
-    function getChartBaseOptions(stacked = false) {
-        // Get CSS variable values for a robust theme-aware chart
+    function getChartBaseOptions(y1Title = '', y2Title = '') {
         const computedStyle = getComputedStyle(document.documentElement);
-        const surfaceColor = computedStyle.getPropertyValue('--surface-color').trim();
         const textSecondary = computedStyle.getPropertyValue('--text-secondary').trim();
         const textPrimary = computedStyle.getPropertyValue('--text-primary').trim();
         const borderColor = computedStyle.getPropertyValue('--border-color').trim();
+        const surfaceColor = computedStyle.getPropertyValue('--surface-color').trim();
 
-        return {
+        const options = {
             responsive: true, maintainAspectRatio: false,
             scales: {
                 x: { type: 'time', time: { unit: 'hour', displayFormats: { hour: 'HH:mm' }}, ticks: { color: textSecondary }, grid: { color: borderColor }},
-                y: { beginAtZero: true, ticks: { color: textSecondary }, grid: { color: borderColor }, stacked: stacked }
+                y1: { type: 'linear', position: 'left', beginAtZero: true, ticks: { color: textSecondary }, grid: { color: borderColor }, title: { display: !!y1Title, text: y1Title, color: textSecondary } }
             },
             plugins: { 
                 legend: { position: 'bottom', labels: { color: textSecondary, usePointStyle: true, boxHeight: 8, padding: 20 } },
                 tooltip: {
-                    mode: 'index', intersect: false,
-                    backgroundColor: surfaceColor || '#FFFFFF', 
-                    titleColor: textSecondary || '#6C757D', 
-                    bodyColor: textPrimary || '#212529',
-                    bodyFont: { weight: 'bold' }, 
-                    borderColor: borderColor || '#E9ECEF', 
-                    borderWidth: 1,
-                    padding: 12,
-                    cornerRadius: 6,
-                    callbacks: {
-                        label: function(context) {
-                            let label = context.dataset.label || '';
-                            if (label) { label += ': '; }
-                            if (context.parsed.y !== null) { label += context.parsed.y.toFixed(2); }
-                            return label;
-                        }
-                    }
+                    mode: 'index', intersect: false, backgroundColor: surfaceColor, titleColor: textSecondary, bodyColor: textPrimary,
+                    bodyFont: { weight: 'bold' }, borderColor: borderColor, borderWidth: 1, padding: 12, cornerRadius: 6,
+                    callbacks: { label: (context) => `${context.dataset.label || ''}: ${context.parsed.y !== null ? context.parsed.y.toFixed(context.dataset.yAxisID === 'y2' ? 5 : 2) : 'N/A'}` }
                 }
             },
             interaction: { mode: 'index', intersect: false },
             elements: { point: { radius: 0, hoverRadius: 5 }, line: { tension: 0.2, borderWidth: 2 } }
         };
+
+        if (y2Title) {
+            options.scales.y2 = { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: textSecondary }, grid: { drawOnChartArea: false }, title: { display: true, text: y2Title, color: textSecondary } };
+        }
+        return options;
     }
 
-    function renderChart(canvasId, datasets, stacked = false) {
+    function renderDualAxisChart(canvasId, datasets, y1Title, y2Title) {
         const ctx = document.getElementById(canvasId);
         if (!ctx) return;
         if (metricCharts[canvasId]) metricCharts[canvasId].destroy();
         
-        const colors = ['#0d6efd', '#6f42c1', '#198754', '#ffc107', '#fd7e14', '#dc3545', '#0dcaf0'];
+        const colors = { y1: ['#0d6efd', '#198754'], y2: ['#fd7e14', '#6f42c1'] };
+        let y1_idx = 0;
+        let y2_idx = 0;
+
+        const chartDatasets = datasets.map(ds => {
+            const isY2 = ds.yAxisID === 'y2';
+            const color = isY2 ? colors.y2[y2_idx++] : colors.y1[y1_idx++];
+            return {
+                label: ds.label,
+                data: ds.timestamps.map((ts, i) => ({ x: new Date(ts), y: ds.values[i] })),
+                borderColor: ds.color || color,
+                backgroundColor: 'transparent',
+                yAxisID: isY2 ? 'y2' : 'y1',
+                fill: false,
+                type: ds.type || 'line', // Allow bar type
+                borderWidth: ds.type === 'bar' ? 0 : 2
+            }
+        });
+
+        metricCharts[canvasId] = new Chart(ctx, { data: { datasets: chartDatasets }, options: getChartBaseOptions(y1Title, y2Title) });
+    }
+
+    function renderChart(canvasId, datasets, stacked = false, yAxisTitle = '') {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+        if (metricCharts[canvasId]) metricCharts[canvasId].destroy();
+        const colors = ['#0d6efd', '#fd7e14', '#198754', '#ffc107', '#6f42c1', '#dc3545', '#0dcaf0'];
         
+        const chartOptions = getChartBaseOptions(yAxisTitle);
+        chartOptions.scales.y1.stacked = stacked;
+
         metricCharts[canvasId] = new Chart(ctx, { type: 'line', data: {
             datasets: datasets.map((ds, index) => ({
                 label: ds.label,
-                data: ds.timestamps.map((ts, i) => ({ x: ts, y: ds.values[i] })),
+                data: ds.timestamps.map((ts, i) => ({ x: new Date(ts), y: ds.values[i] })),
                 borderColor: ds.color || colors[index % colors.length], 
-                backgroundColor: ds.bgColor || (stacked ? (ds.color || colors[index % colors.length]) + '80' : 'transparent'), // Add alpha for fill
-                fill: stacked
+                backgroundColor: ds.bgColor || (stacked ? (ds.color || colors[index % colors.length]) + '80' : 'transparent'),
+                fill: stacked,
+                yAxisID: 'y1',
+                type: ds.type || 'line',
+                borderWidth: ds.type === 'bar' ? 0 : 2
             }))
-        }, options: getChartBaseOptions(stacked) });
+        }, options: chartOptions });
+    }
+    
+    function renderOrShowNoData(canvasId, renderFn) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const container = canvas.parentElement;
+        const noDataMessage = container.querySelector('.no-data-message');
+        if (noDataMessage) noDataMessage.remove();
+        canvas.style.display = 'block';
+
+        const hasData = renderFn(); // Let the specific render function decide if it has data
+        if (!hasData) {
+            canvas.style.display = 'none';
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'no-data-message';
+            messageDiv.innerHTML = `<p><strong>No data available</strong></p><p class="text-muted" style="font-size:0.8rem;">Ensure required metrics are enabled in Container Insights.</p>`;
+            container.appendChild(messageDiv);
+        }
     }
 
-    function processAndRenderCharts(metricsData) {
-        if (!metricsData || Object.keys(metricsData).length === 0) return;
-        const hasData = (key) => metricsData[key] && metricsData[key].values && metricsData[key].values.length > 0;
+    function processAndRenderCharts(metrics) {
+        const hasData = (key) => metrics[key] && metrics[key].values && metrics[key].values.length > 0;
+        const colors = { avg: '#0d6efd', max: '#fd7e14' }; // avg: blue, max: orange
+
+        // --- Cluster Health ---
+        renderOrShowNoData('nodeStatusChart', () => {
+            const datasets = [];
+            if (hasData('cluster_node_count')) {
+                const total = metrics.cluster_node_count;
+                const failed = hasData('cluster_failed_node_count') ? metrics.cluster_failed_node_count : { timestamps: total.timestamps, values: total.values.map(() => 0) };
+                const readyTimestamps = total.timestamps;
+                const readyValues = total.values.map((t, i) => t - (failed.values[i] || 0));
+                datasets.push({ timestamps: readyTimestamps, values: readyValues, label: 'Ready', color: '#198754' });
+                if (hasData('cluster_failed_node_count')) datasets.push({ ...failed, label: 'Not Ready', color: '#DC3545' });
+            }
+            if(datasets.length > 0) renderChart('nodeStatusChart', datasets, true, 'Node Count');
+            return datasets.length > 0;
+        });
         
-        if (hasData('node_status_ready')) renderChart('nodeStatusChart', [ {...metricsData.node_status_ready, label: 'Ready', color: '#198754' } ]);
-        if (hasData('container_restarts')) renderChart('containerRestartsChart', [ {...metricsData.container_restarts, label: 'Restarts', color: '#FFC107' } ]);
-        if (hasData('node_cpu_utilization')) renderChart('nodeCpuChart', [{...metricsData.node_cpu_utilization, label: 'CPU %', color: '#0D6EFD'}]);
-        if (hasData('node_memory_utilization')) renderChart('nodeMemoryChart', [{...metricsData.node_memory_utilization, label: 'Memory %', color: '#6F42C1'}]);
-        if (hasData('node_filesystem_utilization')) renderChart('nodeFsChart', [{...metricsData.node_filesystem_utilization, label: 'Filesystem %', color: '#198754'}]);
-        if (hasData('node_network_rx_bytes') || hasData('node_network_tx_bytes')) renderChart('nodeNetworkChart', [ {...metricsData.node_network_rx_bytes, label: 'Received', color: '#0dcaf0'}, {...metricsData.node_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'} ].filter(d => d.values.length > 0));
-        if (hasData('pod_cpu_utilization')) renderChart('podCpuChart', [{...metricsData.pod_cpu_utilization, label: 'CPU %', color: '#0D6EFD'}]);
-        if (hasData('pod_memory_utilization')) renderChart('podMemoryChart', [{...metricsData.pod_memory_utilization, label: 'Memory %', color: '#6F42C1'}]);
-        if (hasData('pod_network_rx_bytes') || hasData('pod_network_tx_bytes')) renderChart('podNetworkChart', [ {...metricsData.pod_network_rx_bytes, label: 'Received', color: '#0dcaf0'}, {...metricsData.pod_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'} ].filter(d => d.values.length > 0));
-        if (hasData('pod_status_running')) renderChart('podStatusChart', [ {...metricsData.pod_status_running, label: 'Running', color: '#198754'}, {...metricsData.pod_status_pending, label: 'Pending', color: '#FFC107'}, {...metricsData.pod_status_succeeded, label: 'Succeeded', color: '#0DCAF0'}, {...metricsData.pod_status_failed, label: 'Failed', color: '#DC3545'}, {...metricsData.pod_status_unknown, label: '#6C757D'} ].filter(d => d.values && d.values.length > 0), true);
-        if (hasData('apiserver_request_total')) renderChart('apiServerRequestsChart', [ {...metricsData.apiserver_request_total, label: 'Total Requests', color: '#0D6EFD'}, {...metricsData.apiserver_request_total_4xx, label: '4xx Errors', color: '#FFC107'}, {...metricsData.apiserver_request_total_5xx, label: '5xx Errors', color: '#DC3545'}, ].filter(d => d.values && d.values.length > 0));
-        if (hasData('apiserver_request_latency_get')) renderChart('apiServerLatencyChart', [ {...metricsData.apiserver_request_latency_get, label: 'GET', color: '#198754'}, {...metricsData.apiserver_request_latency_list, label: 'LIST', color: '#20c997'}, {...metricsData.apiserver_request_latency_post, label: 'POST', color: '#0D6EFD'}, {...metricsData.apiserver_request_latency_put, label: 'PUT', color: '#FD7E14'}, {...metricsData.apiserver_request_latency_delete, label: 'DELETE', color: '#DC3545'}, ].filter(d => d.values && d.values.length > 0));
-        if (hasData('apiserver_storage_objects')) renderChart('apiServerStorageChart', [{...metricsData.apiserver_storage_objects, label: 'Objects', color: '#6f42c1'}]);
-        if (hasData('apiserver_inflight_requests_mutating')) renderChart('apiServerInflightChart', [ {...metricsData.apiserver_inflight_requests_mutating, label: 'Mutating', color: '#fd7e14'}, {...metricsData.apiserver_inflight_requests_readonly, label: 'Read-Only', color: '#0d6efd'} ].filter(d => d.values && d.values.length > 0));
-        if (hasData('scheduler_schedule_attempts_success')) renderChart('schedulerAttemptsChart', [ {...metricsData.scheduler_schedule_attempts_success, label: 'Success', color: '#198754'}, {...metricsData.scheduler_schedule_attempts_failure, label: 'Failure', color: '#FFC107'}, {...metricsData.scheduler_schedule_attempts_error, label: 'Error', color: '#DC3545'} ].filter(d => d.values && d.values.length > 0), true);
-        if (hasData('scheduler_pending_pods')) renderChart('schedulerPendingPodsChart', [{...metricsData.scheduler_pending_pods, label: 'Pending Pods', color: '#ffc107'}]);
+        renderOrShowNoData('containerRestartsChart', () => {
+            const datasets = hasData('container_restarts') ? [ {...metrics.container_restarts, label: 'Restarts', color: '#FFC107' } ] : [];
+            if (datasets.length > 0) renderChart('containerRestartsChart', datasets, false, 'Count');
+            return datasets.length > 0;
+        });
+        
+        // --- Nodes Status & Capacity ---
+        renderOrShowNoData('numReadyNodesChart', () => { const ds = hasData('node_status_condition_ready') ? [ {...metrics.node_status_condition_ready, label: 'Ready Nodes', color: '#198754'} ] : []; if(ds.length > 0) renderChart('numReadyNodesChart', ds, false, 'Count'); return ds.length > 0; });
+        renderOrShowNoData('nodesErrorConditionChart', () => {
+            const ds = [];
+            if (hasData('node_status_condition_out_of_disk')) ds.push({...metrics.node_status_condition_out_of_disk, label: 'Out of Disk', color: '#fd7e14'});
+            if (hasData('node_status_condition_memory_pressure')) ds.push({...metrics.node_status_condition_memory_pressure, label: 'Memory Pressure', color: '#dc3545'});
+            if (hasData('node_status_condition_pid_pressure')) ds.push({...metrics.node_status_condition_pid_pressure, label: 'PID Pressure', color: '#6f42c1'});
+            if(ds.length > 0) renderChart('nodesErrorConditionChart', ds, true, 'Count'); return ds.length > 0;
+        });
+        renderOrShowNoData('runningPodsPerNodeChart', () => { const ds = hasData('node_number_of_running_pods') ? [ {...metrics.node_number_of_running_pods, label: 'Avg Running Pods', color: '#0d6efd'} ] : []; if(ds.length > 0) renderChart('runningPodsPerNodeChart', ds, false, 'Count'); return ds.length > 0; });
+        renderOrShowNoData('allocatablePodsUtilizationChart', () => { const ds = hasData('node_allocatable_pods_utilization') ? [ {...metrics.node_allocatable_pods_utilization, label: 'avg: node_allocatable_pods_utilization', color: '#0dcaf0'} ] : []; if(ds.length > 0) renderChart('allocatablePodsUtilizationChart', ds, false, 'Count'); return ds.length > 0; });
+
+        // --- Node Performance ---
+        renderOrShowNoData('nodeCpuChart', () => {
+            const datasets = [];
+            if (hasData('node_cpu_utilization_avg')) datasets.push({...metrics.node_cpu_utilization_avg, label: 'avg: node_cpu_utilization', color: colors.avg});
+            if (hasData('node_cpu_utilization_max')) datasets.push({...metrics.node_cpu_utilization_max, label: 'max: node_cpu_utilization', color: colors.max});
+            if (datasets.length > 0) renderChart('nodeCpuChart', datasets, false, '%');
+            return datasets.length > 0;
+        });
+        renderOrShowNoData('nodeMemoryChart', () => {
+            const datasets = [];
+            if (hasData('node_memory_utilization_avg')) datasets.push({...metrics.node_memory_utilization_avg, label: 'avg: node_memory_utilization', color: colors.avg});
+            if (hasData('node_memory_utilization_max')) datasets.push({...metrics.node_memory_utilization_max, label: 'max: node_memory_utilization', color: colors.max});
+            if (datasets.length > 0) renderChart('nodeMemoryChart', datasets, false, '%');
+            return datasets.length > 0;
+        });
+        renderOrShowNoData('nodeFsChart', () => { const ds = hasData('node_filesystem_utilization') ? [{...metrics.node_filesystem_utilization, label: 'Filesystem %', color: '#198754'}] : []; if (ds.length > 0) renderChart('nodeFsChart', ds, false, '%'); return ds.length > 0; });
+        renderOrShowNoData('nodeNetworkChart', () => {
+            const datasets = [];
+            if (hasData('node_network_total_bytes_max')) datasets.push({...metrics.node_network_total_bytes_max, label: 'max: node_network_total_bytes', color: '#fd7e14', bgColor: '#fd7e1440', type: 'bar'});
+            if (hasData('node_network_total_bytes_avg')) datasets.push({...metrics.node_network_total_bytes_avg, label: 'avg: node_network_total_bytes', color: '#0dcaf0', type: 'line'});
+            if (datasets.length > 0) renderChart('nodeNetworkChart', datasets, false, 'Bytes/Second');
+            return datasets.length > 0;
+        });
+        
+        // --- Pod Performance and Limits ---
+        renderOrShowNoData('podCpuChart', () => {
+            const datasets = [];
+            if (hasData('pod_cpu_utilization_avg')) datasets.push({...metrics.pod_cpu_utilization_avg, label: 'avg: pod_cpu_utilization', color: colors.avg});
+            if (hasData('pod_cpu_utilization_max')) datasets.push({...metrics.pod_cpu_utilization_max, label: 'max: pod_cpu_utilization', color: colors.max});
+            if (datasets.length > 0) renderChart('podCpuChart', datasets, false, '%');
+            return datasets.length > 0;
+        });
+        renderOrShowNoData('podMemoryChart', () => {
+            const datasets = [];
+            if (hasData('pod_memory_utilization_avg')) datasets.push({...metrics.pod_memory_utilization_avg, label: 'avg: pod_memory_utilization', color: colors.avg});
+            if (hasData('pod_memory_utilization_max')) datasets.push({...metrics.pod_memory_utilization_max, label: 'max: pod_memory_utilization', color: colors.max});
+            if (datasets.length > 0) renderChart('podMemoryChart', datasets, false, '%');
+            return datasets.length > 0;
+        });
+        renderOrShowNoData('podCpuOverPodLimitChart', () => {
+            const datasets = [];
+            if (hasData('pod_cpu_utilization_over_pod_limit_avg')) datasets.push({...metrics.pod_cpu_utilization_over_pod_limit_avg, label: 'avg: pod_cpu_utilization_over_pod_limit', color: colors.avg});
+            if (hasData('pod_cpu_utilization_over_pod_limit_max')) datasets.push({...metrics.pod_cpu_utilization_over_pod_limit_max, label: 'max: pod_cpu_utilization_over_pod_limit', color: colors.max});
+            if (datasets.length > 0) renderChart('podCpuOverPodLimitChart', datasets, false, '%');
+            return datasets.length > 0;
+        });
+        renderOrShowNoData('podMemoryOverPodLimitChart', () => {
+            const datasets = [];
+            if (hasData('pod_memory_utilization_over_pod_limit_avg')) datasets.push({...metrics.pod_memory_utilization_over_pod_limit_avg, label: 'avg: pod_memory_utilization_over_pod_limit', color: colors.avg});
+            if (hasData('pod_memory_utilization_over_pod_limit_max')) datasets.push({...metrics.pod_memory_utilization_over_pod_limit_max, label: 'max: pod_memory_utilization_over_pod_limit', color: colors.max});
+            if (datasets.length > 0) renderChart('podMemoryOverPodLimitChart', datasets, false, '%');
+            return datasets.length > 0;
+        });
+        renderOrShowNoData('podCpuOverNodeLimitChart', () => {
+            const datasets = [];
+            if (hasData('pod_cpu_utilization_avg')) datasets.push({...metrics.pod_cpu_utilization_avg, label: 'avg: pod_cpu_utilization', color: colors.avg});
+            if (hasData('pod_cpu_utilization_max')) datasets.push({...metrics.pod_cpu_utilization_max, label: 'max: pod_cpu_utilization', color: colors.max});
+            if (datasets.length > 0) renderChart('podCpuOverNodeLimitChart', datasets, false, '%');
+            return datasets.length > 0;
+        });
+        renderOrShowNoData('podMemoryOverNodeLimitChart', () => {
+            const datasets = [];
+            if (hasData('pod_memory_utilization_avg')) datasets.push({...metrics.pod_memory_utilization_avg, label: 'avg: pod_memory_utilization', color: colors.avg});
+            if (hasData('pod_memory_utilization_max')) datasets.push({...metrics.pod_memory_utilization_max, label: 'max: pod_memory_utilization', color: colors.max});
+            if (datasets.length > 0) renderChart('podMemoryOverNodeLimitChart', datasets, false, '%');
+            return datasets.length > 0;
+        });
+        renderOrShowNoData('podNetworkChart', () => {
+            const ds = [];
+            if (hasData('pod_network_rx_bytes')) ds.push({...metrics.pod_network_rx_bytes, label: 'Received', color: '#0dcaf0'});
+            if (hasData('pod_network_tx_bytes')) ds.push({...metrics.pod_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'});
+            if(ds.length>0) renderChart('podNetworkChart', ds, false, 'Bytes/s'); return ds.length > 0;
+        });
+        renderOrShowNoData('podStatusChart', () => {
+            const ds = [];
+            if (hasData('pod_status_running')) ds.push({...metrics.pod_status_running, label: 'Running', color: '#198754'});
+            if (hasData('pod_status_pending')) ds.push({...metrics.pod_status_pending, label: 'Pending', color: '#FFC107'});
+            if (hasData('pod_status_succeeded')) ds.push({...metrics.pod_status_succeeded, label: 'Succeeded', color: '#0DCAF0'});
+            if (hasData('pod_status_failed')) ds.push({...metrics.pod_status_failed, label: 'Failed', color: '#DC3545'});
+            if (hasData('pod_status_unknown')) ds.push({...metrics.pod_status_unknown, label: 'Unknown', color: '#6C757D'});
+            if(ds.length > 0) renderChart('podStatusChart', ds, true, 'Count'); return ds.length > 0;
+        });
+        
+        // --- Control Plane ---
+        renderOrShowNoData('apiServerRequestsChart', () => {
+            const ds = [];
+            if (hasData('apiserver_request_total')) ds.push({...metrics.apiserver_request_total, label: 'request_total', yAxisID: 'y1', color: '#0d6efd'});
+            if (hasData('apiserver_request_duration_seconds')) ds.push({...metrics.apiserver_request_duration_seconds, label: 'request_duration_seconds', yAxisID: 'y2', color: '#fd7e14'});
+            if(ds.length > 0) renderDualAxisChart('apiServerRequestsChart', ds, 'Count', 'Seconds'); return ds.length > 0;
+        });
+        renderOrShowNoData('restClientRequestsChart', () => {
+            const ds = [];
+            if (hasData('rest_client_requests_total')) ds.push({...metrics.rest_client_requests_total, label: 'requests_total', yAxisID: 'y1', color: '#0d6efd'});
+            if (hasData('rest_client_request_duration_seconds')) ds.push({...metrics.rest_client_request_duration_seconds, label: 'request_duration_seconds', yAxisID: 'y2', color: '#fd7e14'});
+            if(ds.length > 0) renderDualAxisChart('restClientRequestsChart', ds, 'Count', 'Seconds'); return ds.length > 0;
+        });
+        renderOrShowNoData('admissionEtcdDurationChart', () => {
+            const ds = [];
+            if (hasData('apiserver_admission_controller_admission_duration_seconds')) ds.push({...metrics.apiserver_admission_controller_admission_duration_seconds, label: 'admission_controller_duration', color: '#0d6efd'});
+            if (hasData('etcd_request_duration_seconds')) ds.push({...metrics.etcd_request_duration_seconds, label: 'etcd_request_duration', color: '#fd7e14'});
+            if(ds.length > 0) renderChart('admissionEtcdDurationChart', ds, false, 'Seconds'); return ds.length > 0;
+        });
+        renderOrShowNoData('apiServerStorageChart', () => {
+            const ds = [];
+            if (hasData('apiserver_storage_objects')) ds.push({...metrics.apiserver_storage_objects, label: 'storage_objects', yAxisID: 'y1', color: '#0d6efd'});
+            if (hasData('apiserver_storage_size_bytes')) ds.push({...metrics.apiserver_storage_size_bytes, label: 'storage_size_bytes', yAxisID: 'y2', color: '#fd7e14'});
+            if(ds.length > 0) renderDualAxisChart('apiServerStorageChart', ds, 'Count', 'Bytes'); return ds.length > 0;
+        });
     }
     
     async function loadMetrics() {
@@ -832,7 +830,7 @@
             const metricsData = await response.json();
             if (!response.ok) throw new Error(metricsData.error || 'Failed to fetch metrics');
             if (Object.keys(metricsData).length === 0 || Object.values(metricsData).every(d => !d || d.values.length === 0)) {
-                throw new Error("No metrics data returned. Ensure Container Insights is enabled for this cluster and has had time to collect data.");
+                throw new Error("No metrics data returned. Ensure Container Insights and Control Plane metrics are enabled for this cluster and have had time to collect data.");
             }
             processAndRenderCharts(metricsData);
             metricsLoaded = true;

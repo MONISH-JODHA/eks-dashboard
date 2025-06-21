@@ -487,7 +487,6 @@ body {
     padding: 2rem;
     text-align: center;
 }
-.metrics-container { display: none; }
 .metrics-container h3 {
     font-size: 1.25rem; font-weight: 600; margin: 2.5rem 0 1.5rem 0;
     padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);
@@ -688,10 +687,95 @@ body {
 .severity-medium { background-color: #FD7E14; }
 .severity-low { background-color: #FFC107; color: var(--text-primary);}
 
+/* --- NEW: Observability Tab Layout --- */
+.observability-container {
+    display: none; /* Hidden by default, shown by JS */
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+.observability-sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    align-self: flex-start;
+}
+.observability-sidebar h4 {
+    margin: 0 0 1rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+.view-switcher {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.view-switcher li label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.65rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+.view-switcher li label:hover {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+}
+.view-switcher li label.active {
+    background-color: var(--primary-color-light);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+.view-switcher li input[type="radio"] {
+    margin: 0;
+    accent-color: var(--primary-color);
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+.observability-main-content {
+    flex-grow: 1;
+    min-width: 0; /* Prevents flex content from overflowing */
+}
+.observability-view {
+    display: none;
+}
+.observability-view.active {
+    display: block;
+    animation: fadeIn 0.4s ease-out;
+}
+
+
 /* --- Responsive Design --- */
 @media (max-width: 1200px) {
     .widget-grid-dynamic {
         grid-template-columns: 1fr;
+    }
+}
+@media (max-width: 992px) {
+    .observability-container {
+        flex-direction: column;
+    }
+    .observability-sidebar {
+        width: 100%;
+        position: static;
     }
 }
 @media (max-width: 768px) {

@@ -247,23 +247,60 @@ def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
         return {"error": f"Failed to get session for account {account_id}."}
 
     cw_client = session.client('cloudwatch', region_name=region)
+    # UPDATED metric definitions to match user screenshots
     metric_definitions = {
-        "node_status_ready": ('node_status_ready', 'Average'), "container_restarts": ('pod_number_of_container_restarts', 'Sum'),
-        "node_cpu_utilization": ('node_cpu_utilization', 'Average'), "node_memory_utilization": ('node_memory_utilization', 'Average'),
-        "node_network_rx_bytes": ('node_network_rx_bytes', 'Average'), "node_network_tx_bytes": ('node_network_tx_bytes', 'Average'),
-        "node_filesystem_utilization": ('node_filesystem_utilization', 'Average'), "pod_cpu_utilization": ('pod_cpu_utilization', 'Average'),
-        "pod_memory_utilization": ('pod_memory_utilization', 'Average'), "pod_network_rx_bytes": ('pod_network_rx_bytes', 'Average'),
-        "pod_network_tx_bytes": ('pod_network_tx_bytes', 'Average'), "pod_status_running": ('pod_status_running', 'Average'),
-        "pod_status_pending": ('pod_status_pending', 'Average'), "pod_status_succeeded": ('pod_status_succeeded', 'Average'),
-        "pod_status_failed": ('pod_status_failed', 'Average'), "pod_status_unknown": ('pod_status_unknown', 'Average'),
-        "apiserver_request_total": ('apiserver_request_total', 'Sum'), "apiserver_request_latency_get": ('apiserver_request_latencies_GET', 'Average'),
-        "apiserver_request_latency_list": ('apiserver_request_latencies_LIST', 'Average'), "apiserver_request_latency_post": ('apiserver_request_latencies_POST', 'Average'),
-        "apiserver_request_latency_put": ('apiserver_request_latencies_PUT', 'Average'), "apiserver_request_latency_delete": ('apiserver_request_latencies_DELETE', 'Average'),
-        "apiserver_storage_objects": ('apiserver_storage_objects', 'Average'), "apiserver_inflight_requests_mutating": ('apiserver_in_flight_requests_mutating', 'Average'),
-        "apiserver_inflight_requests_readonly": ('apiserver_in_flight_requests_read_only', 'Average'), "apiserver_request_total_5xx": ('apiserver_request_total_5XX', 'Sum'),
-        "apiserver_request_total_4xx": ('apiserver_request_total_4XX', 'Sum'), "scheduler_pending_pods": ('scheduler_pending_pods', 'Average'),
-        "scheduler_schedule_attempts_success": ('scheduler_schedule_attempts_SCHEDULED', 'Sum'), "scheduler_schedule_attempts_failure": ('scheduler_schedule_attempts_UNSCHEDULABLE', 'Sum'),
-        "scheduler_schedule_attempts_error": ('scheduler_schedule_attempts_ERROR', 'Sum'),
+        # Cluster Health
+        "cluster_node_count": ('cluster_node_count', 'Average'), 
+        "cluster_failed_node_count": ('cluster_failed_node_count', 'Average'),
+        "container_restarts": ('pod_number_of_container_restarts', 'Sum'),
+
+        # Node Status & Capacity
+        "node_status_condition_ready": ('node_status_condition_ready', 'Sum'),
+        "node_status_condition_out_of_disk": ('node_status_condition_out_of_disk', 'Sum'),
+        "node_status_condition_memory_pressure": ('node_status_condition_memory_pressure', 'Sum'),
+        "node_status_condition_pid_pressure": ('node_status_condition_pid_pressure', 'Sum'),
+        "node_number_of_running_pods": ('node_number_of_running_pods', 'Average'),
+        "node_allocatable_pods_utilization": ('node_allocatable_pods_utilization', 'Average'),
+
+        # Node Performance (with AVG and MAX)
+        "node_cpu_utilization_avg": ('node_cpu_utilization', 'Average'),
+        "node_cpu_utilization_max": ('node_cpu_utilization', 'Maximum'),
+        "node_memory_utilization_avg": ('node_memory_utilization', 'Average'),
+        "node_memory_utilization_max": ('node_memory_utilization', 'Maximum'),
+        "node_filesystem_utilization": ('node_filesystem_utilization', 'Average'),
+        "node_network_total_bytes_avg": ('node_network_total_bytes', 'Average'),
+        "node_network_total_bytes_max": ('node_network_total_bytes', 'Maximum'),
+
+        # Pod Performance (with AVG and MAX)
+        "pod_cpu_utilization_avg": ('pod_cpu_utilization', 'Average'),
+        "pod_cpu_utilization_max": ('pod_cpu_utilization', 'Maximum'),
+        "pod_memory_utilization_avg": ('pod_memory_utilization', 'Average'),
+        "pod_memory_utilization_max": ('pod_memory_utilization', 'Maximum'),
+        "pod_network_rx_bytes": ('pod_network_rx_bytes', 'Average'), 
+        "pod_network_tx_bytes": ('pod_network_tx_bytes', 'Average'),
+        
+        # Pod Utilization Over Pod Limit
+        "pod_cpu_utilization_over_pod_limit_avg": ('pod_cpu_utilization_over_pod_limit', 'Average'),
+        "pod_cpu_utilization_over_pod_limit_max": ('pod_cpu_utilization_over_pod_limit', 'Maximum'),
+        "pod_memory_utilization_over_pod_limit_avg": ('pod_memory_utilization_over_pod_limit', 'Average'),
+        "pod_memory_utilization_over_pod_limit_max": ('pod_memory_utilization_over_pod_limit', 'Maximum'),
+
+        # Pod Status
+        "pod_status_running": ('pod_status_running', 'Average'), 
+        "pod_status_pending": ('pod_status_pending', 'Average'),
+        "pod_status_succeeded": ('pod_status_succeeded', 'Average'), 
+        "pod_status_failed": ('pod_status_failed', 'Average'),
+        "pod_status_unknown": ('pod_status_unknown', 'Average'),
+
+        # Control Plane
+        "apiserver_request_total": ('apiserver_request_total', 'Sum'),
+        "apiserver_request_duration_seconds": ('apiserver_request_duration_seconds', 'Average'),
+        "rest_client_requests_total": ('rest_client_requests_total', 'Sum'),
+        "rest_client_request_duration_seconds": ('rest_client_request_duration_seconds', 'Average'),
+        "apiserver_admission_controller_admission_duration_seconds": ('apiserver_admission_controller_admission_duration_seconds', 'Average'),
+        "etcd_request_duration_seconds": ('etcd_request_duration_seconds', 'Average'),
+        "apiserver_storage_objects": ('apiserver_storage_objects', 'Average'),
+        "apiserver_storage_size_bytes": ('apiserver_storage_size_bytes', 'Average'),
     }
 
     queries = [{
@@ -280,8 +317,10 @@ def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
         )
         return {res['Label']: {'timestamps': [ts.isoformat() for ts in res['Timestamps']], 'values': res['Values']} for res in response['MetricDataResults']}
     except ClientError as e:
-        return {'error': f"Could not fetch metrics. Ensure Container Insights is enabled. Error: {e.response['Error']['Message']}"}
+        logging.error(f"Could not fetch metrics for {cluster_name}. Ensure Container Insights is enabled. Error: {e}")
+        return {'error': f"Could not fetch metrics. Ensure Container Insights and Control Plane metrics are enabled. Error: {e.response['Error']['Message']}"}
     except Exception as e:
+        logging.error(f"An unexpected error occurred fetching metrics for {cluster_name}: {e}")
         return {'error': f'An unexpected error occurred fetching metrics: {str(e)}'}
 
 
@@ -291,7 +330,7 @@ def get_security_insights(cluster_raw, eks_client):
     insights['secrets_encrypted'] = {"status": any(cfg.get('provider', {}).get('keyArn') for cfg in cluster_raw.get('encryptionConfig', [])), "description": "Checks if envelope encryption for Kubernetes secrets is enabled with a KMS key."}
     insights['public_endpoint'] = {"status": not cluster_raw.get('resourcesVpcConfig', {}).get('endpointPublicAccess', False), "description": "Checks if the cluster's API server endpoint is private (best practice)."}
     all_logs, enabled_logs = ['api', 'audit', 'authenticator', 'controllerManager', 'scheduler'], cluster_raw.get('logging', {}).get('clusterLogging', [{}])[0].get('types', [])
-    insights['logging_enabled'] = {"status": all(lt in enabled_logs for lt in all_logs), "missing_logs": [lt for lt in all_logs if lt not in enabled_logs], "description": "Checks if all control plane log types are enabled."}
+    insights['logging_enabled'] = {"status": all(lt in enabled_logs for lt in all_logs), "enabled_logs": enabled_logs, "all_logs": all_logs, "missing_logs": [lt for lt in all_logs if lt not in enabled_logs], "description": "Checks if all control plane log types are enabled."}
     insights['latest_platform_version'] = {"status": False, "current": "N/A", "latest": "N/A", "description": "Checks if the cluster is running the latest EKS platform version."}
     try: eks_client.describe_update(name=cluster_raw['name'], updateId='dummy-id-for-platform-version')
     except ClientError as e:
