@@ -125,7 +125,6 @@
         .resource-filters { display: flex; gap: 1rem; }
         .resource-details-pane .table-container { flex: 1; overflow-y: auto; border: none; }
         .resource-details-pane .data-table { width: 100%; }
-        /* Add cursor pointer to table rows in resources tab */
         #resource-table-body tr { cursor: pointer; }
         #resource-table-body tr:hover { background-color: var(--bg-color); }
 
@@ -825,21 +824,35 @@
         
         const connectedNodes = visNetwork.getConnectedNodes(nodeId);
         connectedNodes.push(nodeId);
-        
+
         const allNodeIds = visNodes.getIds();
-        const nodesToUpdate = allNodeIds.map(id => {
-            if (connectedNodes.includes(id)) {
-                return { id, color: null, font: { color: 'var(--text-secondary)' } };
-            } else {
-                return { id, color: { border: 'rgba(200,200,200,0.2)', background: 'rgba(240,240,240,0.2)' }, font: { color: 'rgba(200,200,200,0.5)' } };
-            }
+        const allEdgeIds = visEdges.getIds();
+
+        const nodesToUpdate = allNodeIds.map(currentId => ({
+            id: currentId,
+            color: connectedNodes.includes(currentId) ? null : { border: 'rgba(200,200,200,0.2)', background: 'rgba(240,240,240,0.2)' },
+            font: { color: connectedNodes.includes(currentId) ? 'var(--text-secondary)' : 'rgba(200,200,200,0.5)' }
+        }));
+        
+        const edgesToUpdate = allEdgeIds.map(edgeId => {
+            const edge = visEdges.get(edgeId);
+            const isConnected = edge.from === nodeId || edge.to === nodeId;
+            return {
+                id: edgeId,
+                color: isConnected ? null : 'rgba(200,200,200,0.2)'
+            };
         });
+
         visNodes.update(nodesToUpdate);
+        visEdges.update(edgesToUpdate);
     }
     
     function resetHighlightAndPanel() {
         if (visNodes) {
              visNodes.update(visNodes.getIds().map(id => ({ id, color: null, font: { color: 'var(--text-secondary)' } })));
+        }
+        if (visEdges) {
+            visEdges.update(visEdges.getIds().map(edgeId => ({id: edgeId, color: null})));
         }
         const infoPanel = document.getElementById('graph-info-panel');
         if (infoPanel) infoPanel.classList.remove('visible');
@@ -1058,20 +1071,6 @@
             if (hasData('pod_memory_utilization_over_pod_limit_avg')) ds.push({...metrics.pod_memory_utilization_over_pod_limit_avg, label: 'avg', color: colors.avg});
             if (hasData('pod_memory_utilization_over_pod_limit_max')) ds.push({...metrics.pod_memory_utilization_over_pod_limit_max, label: 'max', color: colors.max});
             if (ds.length > 0) return renderChart('podMemoryOverPodLimitChart', ds, false, '%');
-            return false;
-        });
-        renderOrShowNoData('podCpuOverNodeLimitChart', () => {
-            const ds = [];
-            if (hasData('pod_cpu_utilization_over_node_limit_avg')) ds.push({...metrics.pod_cpu_utilization_over_node_limit_avg, label: 'avg', color: colors.avg});
-            if (hasData('pod_cpu_utilization_over_node_limit_max')) ds.push({...metrics.pod_cpu_utilization_over_node_limit_max, label: 'max', color: colors.max});
-            if (ds.length > 0) return renderChart('podCpuOverNodeLimitChart', ds, false, '%');
-            return false;
-        });
-        renderOrShowNoData('podMemoryOverNodeLimitChart', () => {
-            const ds = [];
-            if (hasData('pod_memory_utilization_over_node_limit_avg')) ds.push({...metrics.pod_memory_utilization_over_node_limit_avg, label: 'avg', color: colors.avg});
-            if (hasData('pod_memory_utilization_over_node_limit_max')) ds.push({...metrics.pod_memory_utilization_over_node_limit_max, label: 'max', color: colors.max});
-            if (ds.length > 0) return renderChart('podMemoryOverNodeLimitChart', ds, false, '%');
             return false;
         });
         
