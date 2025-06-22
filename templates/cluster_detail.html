@@ -31,7 +31,7 @@
         .vis-navigation .vis-button.vis-zoomOut::before { content: '−' !important; }
         .vis-navigation .vis-button.vis-zoomExtends::before { content: '⤧' !important; }
 
-        /* New Workload UI styles */
+        /* Workload UI styles */
         .workload-controls {
             display: flex;
             justify-content: space-between;
@@ -98,6 +98,22 @@
         .item-status .status-badge { font-size: 0.8rem; padding: 0.3rem 0.75rem; font-weight: 500; }
         .status-badge.status-warning { background-color: #fff3cd; color: #664d03;}
 
+        /* Resources Tab styles */
+        .resources-container { display: flex; height: 80vh; border: 1px solid var(--border-color); border-radius: var(--border-radius); background-color: var(--surface-color); overflow: hidden; }
+        .resource-types-pane { width: 240px; border-right: 1px solid var(--border-color); background-color: var(--bg-color); padding: 1rem; overflow-y: auto; flex-shrink: 0; }
+        .resource-nav-group { margin-bottom: 1.5rem; }
+        .resource-nav-header { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem; padding: 0 0.5rem; }
+        .resource-nav ul { list-style: none; padding: 0; margin: 0; }
+        .resource-nav-link { display: block; padding: 0.5rem 1rem; color: var(--text-primary); text-decoration: none; border-radius: 6px; font-weight: 500; transition: all 0.2s ease; }
+        .resource-nav-link:hover { background-color: var(--border-color); }
+        .resource-nav-link.active { background-color: var(--primary-color-light); color: var(--primary-color); font-weight: 600; }
+        .resource-details-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .resource-table-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+        .resource-table-header h3 { margin: 0; }
+        .resource-filters { display: flex; gap: 1rem; }
+        .resource-details-pane .table-container { flex: 1; overflow-y: auto; border: none; }
+        .resource-details-pane .data-table { width: 100%; }
+
         /* Modal Styles */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); display: none; justify-content: center; align-items: center; z-index: 1000; }
         .modal-overlay.visible { display: flex; }
@@ -126,6 +142,7 @@
             <button class="tab-link" onclick="openTab(event, 'compute')"><i data-feather="hard-drive"></i>Compute</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
             <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
+            <button class="tab-link" onclick="openTab(event, 'resources')"><i data-feather="grid"></i>Resources</button>
             <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="bar-chart-2"></i>Observability</button>
             <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="zap"></i>Analysis & Insights</button>
         </div>
@@ -134,6 +151,7 @@
         {% include '_cluster_compute.html' %}
         {% include '_cluster_addons.html' %}
         {% include '_cluster_workloads.html' %}
+        {% include '_cluster_resources.html' %}
         {% include '_cluster_observability.html' %}
         {% include '_cluster_insights.html' %}
     </div>
@@ -160,11 +178,13 @@
     
     // --- Page State Variables ---
     let workloadsTabInitialized = false;
+    let resourcesTabInitialized = false;
     let visNetwork, visNodes, visEdges;
     let activeTab = 'overview';
     let metricCharts = {};
     let metricsLoaded = false;
     let activeWorkloadFilter = 'pod';
+    let activeResourceType = 'pod';
 
     function openTab(evt, tabName) {
         activeTab = tabName;
@@ -176,13 +196,323 @@
         if (tabName === 'workloads' && !workloadsTabInitialized) {
             initializeWorkloadsTab();
             workloadsTabInitialized = true;
+        } else if (tabName === 'resources' && !resourcesTabInitialized) {
+            initializeResourcesTab();
+            resourcesTabInitialized = true;
         } else if (tabName === 'observability' && !metricsLoaded) {
             loadMetrics();
         }
         feather.replace();
     }
     
-    // --- Workload UI Logic ---
+    // --- START: RESOURCES TAB LOGIC ---
+    const resourceDefinitions = {
+        pod: {
+            dataKey: 'pods', title: 'Pods', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Status', 'Restarts', 'Node', 'Age'],
+            render: p => `<tr data-name="${p.metadata.name.toLowerCase()}" data-namespace="${p.metadata.namespace}">
+                            <td>${p.metadata.name}</td>
+                            <td>${p.metadata.namespace}</td>
+                            <td><span class="status-badge status-${p.status.phase.toLowerCase()}">${p.status.phase}</span></td>
+                            <td>${p.restarts || 0}</td>
+                            <td>${p.spec.nodeName || 'N/A'}</td>
+                            <td>${p.age || 'N/A'}</td>
+                         </tr>`
+        },
+        deployment: {
+            dataKey: 'deployments', title: 'Deployments', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Ready', 'Up-to-date', 'Available', 'Age'],
+            render: d => `<tr data-name="${d.metadata.name.toLowerCase()}" data-namespace="${d.metadata.namespace}">
+                            <td>${d.metadata.name}</td>
+                            <td>${d.metadata.namespace}</td>
+                            <td>${d.status.readyReplicas || 0}/${d.spec.replicas}</td>
+                            <td>${d.status.updatedReplicas || 0}</td>
+                            <td>${d.status.availableReplicas || 0}</td>
+                            <td>${d.age || 'N/A'}</td>
+                         </tr>`
+        },
+        replica_set: {
+            dataKey: 'replica_sets', title: 'ReplicaSets', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Desired', 'Current', 'Ready', 'Age'],
+            render: r => `<tr data-name="${r.metadata.name.toLowerCase()}" data-namespace="${r.metadata.namespace}">
+                            <td>${r.metadata.name}</td>
+                            <td>${r.metadata.namespace}</td>
+                            <td>${r.spec.replicas}</td>
+                            <td>${r.status.replicas || 0}</td>
+                            <td>${r.status.readyReplicas || 0}</td>
+                            <td>${r.age || 'N/A'}</td>
+                         </tr>`
+        },
+        daemon_set: {
+            dataKey: 'daemon_sets', title: 'DaemonSets', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Desired', 'Current', 'Ready', 'Up-to-date', 'Available'],
+            render: d => `<tr data-name="${d.metadata.name.toLowerCase()}" data-namespace="${d.metadata.namespace}">
+                            <td>${d.metadata.name}</td>
+                            <td>${d.metadata.namespace}</td>
+                            <td>${d.status.desiredNumberScheduled}</td>
+                            <td>${d.status.currentNumberScheduled}</td>
+                            <td>${d.status.numberReady}</td>
+                            <td>${d.status.updatedNumberScheduled}</td>
+                            <td>${d.status.numberAvailable}</td>
+                         </tr>`
+        },
+        stateful_set: {
+            dataKey: 'stateful_sets', title: 'StatefulSets', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Ready', 'Age'],
+            render: s => `<tr data-name="${s.metadata.name.toLowerCase()}" data-namespace="${s.metadata.namespace}">
+                            <td>${s.metadata.name}</td>
+                            <td>${s.metadata.namespace}</td>
+                            <td>${s.status.readyReplicas || 0}/${s.spec.replicas}</td>
+                            <td>${s.age || 'N/A'}</td>
+                         </tr>`
+        },
+        job: {
+            dataKey: 'jobs', title: 'Jobs', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Completions', 'Duration', 'Age'],
+            render: j => {
+                const duration = j.status.startTime && j.status.completionTime ? 
+                    (new Date(j.status.completionTime) - new Date(j.status.startTime))/1000 + 's' : 'N/A';
+                return `<tr data-name="${j.metadata.name.toLowerCase()}" data-namespace="${j.metadata.namespace}">
+                            <td>${j.metadata.name}</td>
+                            <td>${j.metadata.namespace}</td>
+                            <td>${j.status.succeeded || 0}/${j.spec.completions || 1}</td>
+                            <td>${duration}</td>
+                            <td>${j.age || 'N/A'}</td>
+                         </tr>`
+            }
+        },
+        cron_job: {
+            dataKey: 'cron_jobs', title: 'CronJobs', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Schedule', 'Suspend', 'Active', 'Last Schedule', 'Age'],
+            render: c => `<tr data-name="${c.metadata.name.toLowerCase()}" data-namespace="${c.metadata.namespace}">
+                            <td>${c.metadata.name}</td>
+                            <td>${c.metadata.namespace}</td>
+                            <td>${c.spec.schedule}</td>
+                            <td>${c.spec.suspend}</td>
+                            <td>${c.status.active ? c.status.active.length : 0}</td>
+                            <td>${c.status.lastScheduleTime || 'N/A'}</td>
+                            <td>${c.age || 'N/A'}</td>
+                         </tr>`
+        },
+        hpa: {
+            dataKey: 'hpas', title: 'HorizontalPodAutoscalers', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Reference', 'Min Pods', 'Max Pods', 'Replicas'],
+            render: h => `<tr data-name="${h.metadata.name.toLowerCase()}" data-namespace="${h.metadata.namespace}">
+                            <td>${h.metadata.name}</td>
+                            <td>${h.metadata.namespace}</td>
+                            <td>${h.spec.scaleTargetRef.kind}/${h.spec.scaleTargetRef.name}</td>
+                            <td>${h.spec.minReplicas}</td>
+                            <td>${h.spec.maxReplicas}</td>
+                            <td>${h.status.currentReplicas}</td>
+                         </tr>`
+        },
+        priority_class: {
+            dataKey: 'priority_classes', title: 'PriorityClasses', hasNamespace: false,
+            columns: ['Name', 'Value', 'Global Default', 'Age'],
+            render: p => `<tr data-name="${p.metadata.name.toLowerCase()}" data-namespace="">
+                            <td>${p.metadata.name}</td>
+                            <td>${p.value}</td>
+                            <td>${p.globalDefault || false}</td>
+                            <td>${p.age || 'N/A'}</td>
+                        </tr>`
+        },
+        node: {
+            dataKey: 'nodes', title: 'Nodes', hasNamespace: false,
+            columns: ['Name', 'Status', 'Roles', 'Version', 'Internal IP'],
+            render: n => {
+                const readyCond = n.status.conditions.find(c => c.type === 'Ready');
+                const status = readyCond ? (readyCond.status === 'True' ? 'Ready' : 'NotReady') : 'Unknown';
+                const roles = Object.keys(n.metadata.labels).filter(l => l.startsWith('node-role.kubernetes.io')).map(l => l.split('/')[1]).join(', ') || '<none>';
+                return `<tr data-name="${n.metadata.name.toLowerCase()}" data-namespace="">
+                            <td>${n.metadata.name}</td>
+                            <td><span class="status-badge status-${status.toLowerCase()}">${status}</span></td>
+                            <td>${roles}</td>
+                            <td>${n.status.nodeInfo.kubeletVersion}</td>
+                            <td>${n.status.addresses.find(a => a.type === 'InternalIP')?.address || 'N/A'}</td>
+                         </tr>`
+            }
+        },
+        service: {
+            dataKey: 'services', title: 'Services', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Type', 'Cluster IP', 'External IP', 'Ports', 'Age'],
+            render: s => `<tr data-name="${s.metadata.name.toLowerCase()}" data-namespace="${s.metadata.namespace}">
+                            <td>${s.metadata.name}</td>
+                            <td>${s.metadata.namespace}</td>
+                            <td>${s.spec.type}</td>
+                            <td>${s.spec.clusterIP || '<none>'}</td>
+                            <td>${s.status.loadBalancer?.ingress?.[0]?.hostname || s.status.loadBalancer?.ingress?.[0]?.ip || '<none>'}</td>
+                            <td>${s.spec.ports.map(p => `${p.port}:${p.targetPort || p.port}/${p.protocol}`).join(', ')}</td>
+                            <td>${s.age || 'N/A'}</td>
+                         </tr>`
+        },
+        endpoint: {
+            dataKey: 'endpoints', title: 'Endpoints', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Endpoints', 'Age'],
+            render: e => {
+                const endpointsStr = (e.subsets || []).flatMap(s => s.addresses || []).map(a => a.ip).join(', ');
+                return `<tr data-name="${e.metadata.name.toLowerCase()}" data-namespace="${e.metadata.namespace}">
+                            <td>${e.metadata.name}</td>
+                            <td>${e.metadata.namespace}</td>
+                            <td>${endpointsStr.substring(0, 100)}${endpointsStr.length > 100 ? '...' : ''}</td>
+                            <td>${e.age || 'N/A'}</td>
+                        </tr>`
+            }
+        },
+        ingress: {
+            dataKey: 'ingresses', title: 'Ingresses', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Class', 'Hosts', 'Address', 'Ports', 'Age'],
+            render: i => `<tr data-name="${i.metadata.name.toLowerCase()}" data-namespace="${i.metadata.namespace}">
+                            <td>${i.metadata.name}</td>
+                            <td>${i.metadata.namespace}</td>
+                            <td>${i.spec.ingressClassName || '<none>'}</td>
+                            <td>${(i.spec.rules || []).map(r => r.host).join(', ') || '*'}</td>
+                            <td>${i.status.loadBalancer?.ingress?.[0]?.hostname || i.status.loadBalancer?.ingress?.[0]?.ip || ''}</td>
+                            <td>80, 443</td>
+                            <td>${i.age || 'N/A'}</td>
+                         </tr>`
+        },
+        persistent_volume_claim: {
+            dataKey: 'persistent_volume_claims', title: 'PersistentVolumeClaims', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Status', 'Volume', 'Capacity', 'Access Modes', 'Storage Class', 'Age'],
+            render: pvc => `<tr data-name="${pvc.metadata.name.toLowerCase()}" data-namespace="${pvc.metadata.namespace}">
+                            <td>${pvc.metadata.name}</td>
+                            <td>${pvc.metadata.namespace}</td>
+                            <td>${pvc.status.phase}</td>
+                            <td>${pvc.spec.volumeName || ''}</td>
+                            <td>${pvc.status.capacity?.storage || ''}</td>
+                            <td>${(pvc.spec.accessModes || []).join(', ')}</td>
+                            <td>${pvc.spec.storageClassName}</td>
+                            <td>${pvc.age || 'N/A'}</td>
+                           </tr>`
+        },
+        persistent_volume: {
+            dataKey: 'persistent_volumes', title: 'PersistentVolumes', hasNamespace: false,
+            columns: ['Name', 'Capacity', 'Access Modes', 'Reclaim Policy', 'Status', 'Claim', 'Storage Class', 'Age'],
+            render: pv => `<tr data-name="${pv.metadata.name.toLowerCase()}" data-namespace="">
+                            <td>${pv.metadata.name}</td>
+                            <td>${pv.spec.capacity?.storage || ''}</td>
+                            <td>${(pv.spec.accessModes || []).join(', ')}</td>
+                            <td>${pv.spec.persistentVolumeReclaimPolicy}</td>
+                            <td>${pv.status.phase}</td>
+                            <td>${pv.spec.claimRef ? `${pv.spec.claimRef.namespace}/${pv.spec.claimRef.name}`: ''}</td>
+                            <td>${pv.spec.storageClassName}</td>
+                            <td>${pv.age || 'N/A'}</td>
+                           </tr>`
+        },
+        storage_class: {
+            dataKey: 'storage_classes', title: 'StorageClasses', hasNamespace: false,
+            columns: ['Name', 'Provisioner', 'Reclaim Policy', 'Volume Binding Mode', 'Age'],
+            render: sc => `<tr data-name="${sc.metadata.name.toLowerCase()}" data-namespace="">
+                            <td>${sc.metadata.name}</td>
+                            <td>${sc.provisioner}</td>
+                            <td>${sc.reclaimPolicy}</td>
+                            <td>${sc.volumeBindingMode}</td>
+                            <td>${sc.age || 'N/A'}</td>
+                           </tr>`
+        },
+        csi_node: {
+            dataKey: 'csi_nodes', title: 'CSINodes', hasNamespace: false,
+            columns: ['Name', 'Drivers', 'Age'],
+            render: csi => {
+                const drivers = (csi.spec.drivers || []).map(d => d.name).join(', ');
+                return `<tr data-name="${csi.metadata.name.toLowerCase()}" data-namespace="">
+                            <td>${csi.metadata.name}</td>
+                            <td>${drivers}</td>
+                            <td>${csi.age || 'N/A'}</td>
+                        </tr>`
+            }
+        },
+        csi_driver: {
+            dataKey: 'csi_drivers', title: 'CSIDrivers', hasNamespace: false,
+            columns: ['Name', 'Attach Required', 'Pod Info on Mount', 'Age'],
+            render: csi => `<tr data-name="${csi.metadata.name.toLowerCase()}" data-namespace="">
+                            <td>${csi.metadata.name}</td>
+                            <td>${csi.spec.attachRequired}</td>
+                            <td>${csi.spec.podInfoOnMount}</td>
+                            <td>${csi.age || 'N/A'}</td>
+                        </tr>`
+        }
+    };
+    
+    function initializeResourcesTab() {
+        if (!workloadsData || workloadsData.error) { return; }
+
+        document.querySelectorAll('.resource-nav-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                document.querySelectorAll('.resource-nav-link').forEach(l => l.classList.remove('active'));
+                e.target.classList.add('active');
+                activeResourceType = e.target.dataset.resource;
+                renderResourceTable(activeResourceType);
+            });
+        });
+        
+        document.getElementById('resource-namespace-filter').addEventListener('change', applyResourceFilters);
+        document.getElementById('resource-name-filter').addEventListener('input', applyResourceFilters);
+        
+        renderResourceTable(activeResourceType);
+    }
+
+    function renderResourceTable(resourceType) {
+        const config = resourceDefinitions[resourceType];
+        if (!config) { console.error("Unknown resource type:", resourceType); return; }
+
+        const data = workloadsData[config.dataKey] || [];
+
+        document.getElementById('resource-title').textContent = config.title;
+
+        const head = document.getElementById('resource-table-head');
+        head.innerHTML = `<tr><th>${config.columns.join('</th><th>')}</th></tr>`;
+        
+        const body = document.getElementById('resource-table-body');
+        body.innerHTML = data.map(config.render).join('');
+
+        const nsFilter = document.getElementById('resource-namespace-filter');
+        const nameFilter = document.getElementById('resource-name-filter');
+        if (config.hasNamespace) {
+            const namespaces = ['all', ...new Set(data.map(item => item.metadata.namespace))].sort();
+            nsFilter.innerHTML = namespaces.map(ns => `<option value="${ns}">${ns === 'all' ? 'All Namespaces' : ns}</option>`).join('');
+            nsFilter.style.display = 'block';
+        } else {
+            nsFilter.style.display = 'none';
+        }
+        
+        nsFilter.value = 'all';
+        nameFilter.value = '';
+        applyResourceFilters();
+    }
+    
+    function applyResourceFilters() {
+        const config = resourceDefinitions[activeResourceType];
+        const nsValue = document.getElementById('resource-namespace-filter').value;
+        const nameValue = document.getElementById('resource-name-filter').value.toLowerCase();
+        const body = document.getElementById('resource-table-body');
+        const rows = body.querySelectorAll('tr');
+        let visibleCount = 0;
+
+        rows.forEach(row => {
+            const rowNs = row.dataset.namespace;
+            const rowName = row.dataset.name;
+
+            const nsMatch = !config.hasNamespace || (nsValue === 'all') || (rowNs === nsValue);
+            const nameMatch = rowName.includes(nameValue);
+
+            if (nsMatch && nameMatch) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        document.getElementById('resource-table-empty').style.display = visibleCount === 0 ? 'flex' : 'none';
+        body.parentElement.parentElement.style.display = visibleCount > 0 ? 'block' : 'none';
+    }
+
+    // --- END: RESOURCES TAB LOGIC ---
+
+
+    // --- Workload UI Logic (Graph View) ---
     function initializeWorkloadsTab() {
         if (!workloadsData || workloadsData.error) {
             document.getElementById('workload-list-container').innerHTML = '<div class="no-data-message"><p>Could not load workload data.</p></div>';
@@ -268,7 +598,7 @@
                 const uid = item.dataset.uid;
                 let resourceData;
 
-                if (uid && visNodes.get(uid)) {
+                if (uid && visNodes && visNodes.get(uid)) {
                     highlightNodeAndConnections(uid);
                     visNetwork.focus(uid, { scale: 1.5, animation: true });
                 } else {
@@ -333,7 +663,7 @@
     }
 
     function filterMap(visibleUids, visibleNamespaces) {
-        if (!visNodes) return;
+        if (!visNetwork || !visNodes) return;
         const nodeUpdates = [];
         visNodes.getIds().forEach(nodeId => {
             const mapNode = workloadsData.map_nodes.find(n => n.id === nodeId);
@@ -354,11 +684,10 @@
         visNodes.update(nodeUpdates);
     }
 
-    // --- Workload Graph Functions ---
     function renderWorkloadGraph() {
         const container = document.getElementById('workload-graph');
-        if (!workloadsData || workloadsData.error || !workloadsData.map_nodes) {
-            container.innerHTML = '<div class="no-data-message"><p>Could not render workload graph.</p></div>';
+        if (!workloadsData || workloadsData.error || !workloadsData.map_nodes || workloadsData.map_nodes.length === 0) {
+            container.innerHTML = '<div class="no-data-message"><p>Could not render workload graph.</p><p>Ensure the cluster is accessible and workload data can be fetched.</p></div>';
             return;
         }
         visNodes = new vis.DataSet(workloadsData.map_nodes);
@@ -384,40 +713,45 @@
     function setupGraphInteractions() {
         const searchInput = document.getElementById('graph-search');
         visNetwork.on('click', (properties) => {
-            resetHighlightAndPanel();
             if (properties.nodes.length > 0) {
                 const nodeId = properties.nodes[0];
                 const nodeData = visNodes.get(nodeId);
-                populateInfoPanel(nodeData.details);
-                highlightNodeAndConnections(nodeId);
                 
                 const listItem = document.querySelector(`.workload-list-item[data-uid="${nodeId}"]`);
                 if (listItem) {
-                    listItem.classList.add('selected');
-                    listItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    listItem.click();
+                } else {
+                    populateInfoPanel(nodeData.details);
+                    highlightNodeAndConnections(nodeId);
                 }
+            } else {
+                resetHighlightAndPanel();
             }
         });
         document.getElementById('graph-info-close').addEventListener('click', resetHighlightAndPanel);
-        searchInput.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            if (!searchTerm) { resetHighlightAndPanel(); return; }
-            const foundNode = workloadsData.map_nodes.find(n => n.label.toLowerCase().includes(searchTerm));
-            if (foundNode) {
-                visNetwork.focus(foundNode.id, { scale: 1.5, animation: true });
-                populateInfoPanel(foundNode.details);
-                highlightNodeAndConnections(foundNode.id);
-            }
-        });
+
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                const searchTerm = e.target.value.toLowerCase();
+                if (!searchTerm) { resetHighlightAndPanel(); return; }
+                const foundNode = workloadsData.map_nodes.find(n => n.label.toLowerCase().includes(searchTerm));
+                if (foundNode) {
+                    visNetwork.focus(foundNode.id, { scale: 1.5, animation: true });
+                    populateInfoPanel(foundNode.details);
+                    highlightNodeAndConnections(foundNode.id);
+                }
+            });
+        }
     }
 
     function populateInfoPanel(details) {
         const panel = document.getElementById('graph-info-panel');
+        if (!panel) return;
         document.getElementById('info-panel-title').textContent = `${details.kind}: ${details.name}`;
         let html = '';
         for (const [key, value] of Object.entries(details)) {
             if (key === 'kind' || key === 'name') continue;
-            let displayValue = typeof value === 'object' && value !== null ? `<pre class="code">${JSON.stringify(value, null, 2)}</pre>` : `<span class="code">${value || 'N/A'}</span>`;
+            let displayValue = typeof value === 'object' && value !== null ? `<pre class="code" style="font-size: 0.75rem; max-height: 150px; overflow-y: auto;">${JSON.stringify(value, null, 2)}</pre>` : `<span class="code">${value || 'N/A'}</span>`;
             html += `<strong>${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</strong><div>${displayValue}</div>`;
         }
         document.getElementById('info-panel-body').innerHTML = html;
@@ -425,25 +759,33 @@
     }
 
     function highlightNodeAndConnections(nodeId) {
-        resetHighlightAndPanel();
+        if (!visNetwork) return;
+        populateInfoPanel(visNodes.get(nodeId).details);
+        
         const connectedNodes = visNetwork.getConnectedNodes(nodeId);
         connectedNodes.push(nodeId);
-        const nodesToUpdate = [];
-        visNodes.getIds().forEach(id => {
-            if (!connectedNodes.includes(id)) {
-                nodesToUpdate.push({ id, color: { border: 'rgba(200,200,200,0.2)', background: 'rgba(240,240,240,0.2)' }, font: { color: 'rgba(200,200,200,0.5)' } });
+        
+        const allNodeIds = visNodes.getIds();
+        const nodesToUpdate = allNodeIds.map(id => {
+            if (connectedNodes.includes(id)) {
+                return { id, color: null, font: { color: 'var(--text-secondary)' } };
+            } else {
+                return { id, color: { border: 'rgba(200,200,200,0.2)', background: 'rgba(240,240,240,0.2)' }, font: { color: 'rgba(200,200,200,0.5)' } };
             }
         });
         visNodes.update(nodesToUpdate);
     }
     
     function resetHighlightAndPanel() {
-        document.querySelectorAll('.workload-list-item').forEach(i => i.classList.remove('selected'));
-        document.getElementById('graph-info-panel').classList.remove('visible');
-        visNodes.update(visNodes.getIds().map(id => ({ id, color: null, font: { color: 'var(--text-secondary)' } })));
+        if (visNodes) {
+             visNodes.update(visNodes.getIds().map(id => ({ id, color: null, font: { color: 'var(--text-secondary)' } })));
+        }
+        const infoPanel = document.getElementById('graph-info-panel');
+        if (infoPanel) infoPanel.classList.remove('visible');
+        document.querySelectorAll('.workload-list-item.selected').forEach(i => i.classList.remove('selected'));
     }
     
-    // --- Metrics and Charting Functions (Full Version) ---
+    // --- Metrics and Charting Functions (COMPLETE & CORRECTED) ---
     function getChartBaseOptions(y1Title = '', y2Title = '') {
         const computedStyle = getComputedStyle(document.documentElement);
         const textSecondary = computedStyle.getPropertyValue('--text-secondary').trim();
@@ -477,10 +819,10 @@
 
     function renderDualAxisChart(canvasId, datasets, y1Title, y2Title) {
         const ctx = document.getElementById(canvasId);
-        if (!ctx) return;
+        if (!ctx) return false;
         if (metricCharts[canvasId]) metricCharts[canvasId].destroy();
         
-        const colors = { y1: ['#0d6efd', '#198754'], y2: ['#fd7e14', '#6f42c1'] };
+        const colors = { y1: ['#0d6efd', '#198754', '#6f42c1'], y2: ['#fd7e14', '#dc3545', '#ffc107'] };
         let y1_idx = 0;
         let y2_idx = 0;
 
@@ -500,11 +842,12 @@
         });
 
         metricCharts[canvasId] = new Chart(ctx, { data: { datasets: chartDatasets }, options: getChartBaseOptions(y1Title, y2Title) });
+        return true;
     }
 
     function renderChart(canvasId, datasets, stacked = false, yAxisTitle = '') {
         const ctx = document.getElementById(canvasId);
-        if (!ctx) return;
+        if (!ctx) return false;
         if (metricCharts[canvasId]) metricCharts[canvasId].destroy();
         const colors = ['#0d6efd', '#fd7e14', '#198754', '#ffc107', '#6f42c1', '#dc3545', '#0dcaf0'];
         
@@ -523,6 +866,7 @@
                 borderWidth: ds.type === 'bar' ? 0 : 2
             }))
         }, options: chartOptions });
+        return true;
     }
     
     function renderOrShowNoData(canvasId, renderFn) {
@@ -533,7 +877,14 @@
         if (noDataMessage) noDataMessage.remove();
         canvas.style.display = 'block';
 
-        const hasData = renderFn(); 
+        let hasData = false;
+        try {
+            hasData = renderFn();
+        } catch(e) {
+            console.error(`Error rendering chart ${canvasId}:`, e);
+            hasData = false;
+        }
+         
         if (!hasData) {
             canvas.style.display = 'none';
             const messageDiv = document.createElement('div');
@@ -544,9 +895,10 @@
     }
 
     function processAndRenderCharts(metrics) {
-        const hasData = (key) => metrics[key] && metrics[key].values && metrics[key].values.length > 0;
+        const hasData = (key) => metrics && metrics[key] && metrics[key].values && metrics[key].values.length > 0;
         const colors = { avg: '#0d6efd', max: '#fd7e14' };
         
+        // --- Cluster Health ---
         renderOrShowNoData('nodeStatusChart', () => {
             const datasets = [];
             if (hasData('cluster_node_count')) {
@@ -557,77 +909,71 @@
                 datasets.push({ timestamps: readyTimestamps, values: readyValues, label: 'Ready', color: '#198754' });
                 if (hasData('cluster_failed_node_count')) datasets.push({ ...failed, label: 'Not Ready', color: '#DC3545' });
             }
-            if(datasets.length > 0) renderChart('nodeStatusChart', datasets, true, 'Node Count');
-            return datasets.length > 0;
+            if(datasets.length > 0) return renderChart('nodeStatusChart', datasets, true, 'Node Count');
+            return false;
         });
-        
         renderOrShowNoData('containerRestartsChart', () => {
-            const datasets = hasData('container_restarts') ? [ {...metrics.container_restarts, label: 'Restarts', color: '#FFC107' } ] : [];
-            if (datasets.length > 0) renderChart('containerRestartsChart', datasets, false, 'Count');
-            return datasets.length > 0;
+            const ds = hasData('container_restarts') ? [ {...metrics.container_restarts, label: 'Restarts', color: '#FFC107' } ] : [];
+            if (ds.length > 0) return renderChart('containerRestartsChart', ds, false, 'Count');
+            return false;
         });
         
-        renderOrShowNoData('numReadyNodesChart', () => { const ds = hasData('node_status_condition_ready') ? [ {...metrics.node_status_condition_ready, label: 'Ready Nodes', color: '#198754'} ] : []; if(ds.length > 0) renderChart('numReadyNodesChart', ds, false, 'Count'); return ds.length > 0; });
-        
+        // --- Node Status ---
+        renderOrShowNoData('numReadyNodesChart', () => { const ds = hasData('node_status_condition_ready') ? [ {...metrics.node_status_condition_ready, label: 'Ready Nodes', color: '#198754'} ] : []; if(ds.length > 0) return renderChart('numReadyNodesChart', ds, false, 'Count'); return ds.length > 0; });
         renderOrShowNoData('nodesErrorConditionChart', () => {
             const ds = [];
             if (hasData('node_status_condition_out_of_disk')) ds.push({...metrics.node_status_condition_out_of_disk, label: 'Out of Disk', color: '#fd7e14'});
             if (hasData('node_status_condition_memory_pressure')) ds.push({...metrics.node_status_condition_memory_pressure, label: 'Memory Pressure', color: '#dc3545'});
             if (hasData('node_status_condition_pid_pressure')) ds.push({...metrics.node_status_condition_pid_pressure, label: 'PID Pressure', color: '#6f42c1'});
-            if(ds.length > 0) renderChart('nodesErrorConditionChart', ds, true, 'Count'); return ds.length > 0;
+            if(ds.length > 0) return renderChart('nodesErrorConditionChart', ds, true, 'Count'); return ds.length > 0;
         });
+        renderOrShowNoData('runningPodsPerNodeChart', () => { const ds = hasData('node_number_of_running_pods') ? [ {...metrics.node_number_of_running_pods, label: 'Avg Running Pods', color: '#0d6efd'} ] : []; if(ds.length > 0) return renderChart('runningPodsPerNodeChart', ds, false, 'Count'); return ds.length > 0; });
         
-        renderOrShowNoData('runningPodsPerNodeChart', () => { const ds = hasData('node_number_of_running_pods') ? [ {...metrics.node_number_of_running_pods, label: 'Avg Running Pods', color: '#0d6efd'} ] : []; if(ds.length > 0) renderChart('runningPodsPerNodeChart', ds, false, 'Count'); return ds.length > 0; });
-        
+        // --- Node Performance ---
         renderOrShowNoData('nodeCpuChart', () => {
-            const datasets = [];
-            if (hasData('node_cpu_utilization_avg')) datasets.push({...metrics.node_cpu_utilization_avg, label: 'avg: node_cpu_utilization', color: colors.avg});
-            if (hasData('node_cpu_utilization_max')) datasets.push({...metrics.node_cpu_utilization_max, label: 'max: node_cpu_utilization', color: colors.max});
-            if (datasets.length > 0) renderChart('nodeCpuChart', datasets, false, '%');
-            return datasets.length > 0;
+            const ds = [];
+            if (hasData('node_cpu_utilization_avg')) ds.push({...metrics.node_cpu_utilization_avg, label: 'avg', color: colors.avg});
+            if (hasData('node_cpu_utilization_max')) ds.push({...metrics.node_cpu_utilization_max, label: 'max', color: colors.max});
+            if (ds.length > 0) return renderChart('nodeCpuChart', ds, false, '%');
+            return false;
         });
-
         renderOrShowNoData('nodeMemoryChart', () => {
-            const datasets = [];
-            if (hasData('node_memory_utilization_avg')) datasets.push({...metrics.node_memory_utilization_avg, label: 'avg: node_memory_utilization', color: colors.avg});
-            if (hasData('node_memory_utilization_max')) datasets.push({...metrics.node_memory_utilization_max, label: 'max: node_memory_utilization', color: colors.max});
-            if (datasets.length > 0) renderChart('nodeMemoryChart', datasets, false, '%');
-            return datasets.length > 0;
+            const ds = [];
+            if (hasData('node_memory_utilization_avg')) ds.push({...metrics.node_memory_utilization_avg, label: 'avg', color: colors.avg});
+            if (hasData('node_memory_utilization_max')) ds.push({...metrics.node_memory_utilization_max, label: 'max', color: colors.max});
+            if (ds.length > 0) return renderChart('nodeMemoryChart', ds, false, '%');
+            return false;
         });
-
-        renderOrShowNoData('nodeFsChart', () => { const ds = hasData('node_filesystem_utilization') ? [{...metrics.node_filesystem_utilization, label: 'Filesystem %', color: '#198754'}] : []; if (ds.length > 0) renderChart('nodeFsChart', ds, false, '%'); return ds.length > 0; });
-        
+        renderOrShowNoData('nodeFsChart', () => { const ds = hasData('node_filesystem_utilization') ? [{...metrics.node_filesystem_utilization, label: 'Filesystem %', color: '#198754'}] : []; if (ds.length > 0) return renderChart('nodeFsChart', ds, false, '%'); return ds.length > 0; });
         renderOrShowNoData('nodeNetworkChart', () => {
-            const datasets = [];
-            if (hasData('node_network_total_bytes_max')) datasets.push({...metrics.node_network_total_bytes_max, label: 'max: node_network_total_bytes', color: '#fd7e14', bgColor: '#fd7e1440', type: 'bar'});
-            if (hasData('node_network_total_bytes_avg')) datasets.push({...metrics.node_network_total_bytes_avg, label: 'avg: node_network_total_bytes', color: '#0dcaf0', type: 'line'});
-            if (datasets.length > 0) renderChart('nodeNetworkChart', datasets, false, 'Bytes/Second');
-            return datasets.length > 0;
+            const ds = [];
+            if (hasData('node_network_total_bytes_max')) ds.push({...metrics.node_network_total_bytes_max, label: 'max', color: '#fd7e14', bgColor: '#fd7e1440', type: 'bar'});
+            if (hasData('node_network_total_bytes_avg')) ds.push({...metrics.node_network_total_bytes_avg, label: 'avg', color: '#0dcaf0', type: 'line'});
+            if (ds.length > 0) return renderChart('nodeNetworkChart', ds, false, 'Bytes/Second');
+            return false;
         });
         
+        // --- Pod Performance ---
         renderOrShowNoData('podCpuChart', () => {
-            const datasets = [];
-            if (hasData('pod_cpu_utilization_avg')) datasets.push({...metrics.pod_cpu_utilization_avg, label: 'avg: pod_cpu_utilization', color: colors.avg});
-            if (hasData('pod_cpu_utilization_max')) datasets.push({...metrics.pod_cpu_utilization_max, label: 'max: pod_cpu_utilization', color: colors.max});
-            if (datasets.length > 0) renderChart('podCpuChart', datasets, false, '%');
-            return datasets.length > 0;
+            const ds = [];
+            if (hasData('pod_cpu_utilization_avg')) ds.push({...metrics.pod_cpu_utilization_avg, label: 'avg', color: colors.avg});
+            if (hasData('pod_cpu_utilization_max')) ds.push({...metrics.pod_cpu_utilization_max, label: 'max', color: colors.max});
+            if (ds.length > 0) return renderChart('podCpuChart', ds, false, '%');
+            return false;
         });
-        
         renderOrShowNoData('podMemoryChart', () => {
-            const datasets = [];
-            if (hasData('pod_memory_utilization_avg')) datasets.push({...metrics.pod_memory_utilization_avg, label: 'avg: pod_memory_utilization', color: colors.avg});
-            if (hasData('pod_memory_utilization_max')) datasets.push({...metrics.pod_memory_utilization_max, label: 'max: pod_memory_utilization', color: colors.max});
-            if (datasets.length > 0) renderChart('podMemoryChart', datasets, false, '%');
-            return datasets.length > 0;
+            const ds = [];
+            if (hasData('pod_memory_utilization_avg')) ds.push({...metrics.pod_memory_utilization_avg, label: 'avg', color: colors.avg});
+            if (hasData('pod_memory_utilization_max')) ds.push({...metrics.pod_memory_utilization_max, label: 'max', color: colors.max});
+            if (ds.length > 0) return renderChart('podMemoryChart', ds, false, '%');
+            return false;
         });
-        
         renderOrShowNoData('podNetworkChart', () => {
             const ds = [];
             if (hasData('pod_network_rx_bytes')) ds.push({...metrics.pod_network_rx_bytes, label: 'Received', color: '#0dcaf0'});
             if (hasData('pod_network_tx_bytes')) ds.push({...metrics.pod_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'});
-            if(ds.length>0) renderChart('podNetworkChart', ds, false, 'Bytes/s'); return ds.length > 0;
+            if(ds.length > 0) return renderChart('podNetworkChart', ds, false, 'Bytes/s'); return ds.length > 0;
         });
-        
         renderOrShowNoData('podStatusChart', () => {
             const ds = [];
             if (hasData('pod_status_running')) ds.push({...metrics.pod_status_running, label: 'Running', color: '#198754'});
@@ -635,14 +981,63 @@
             if (hasData('pod_status_succeeded')) ds.push({...metrics.pod_status_succeeded, label: 'Succeeded', color: '#0DCAF0'});
             if (hasData('pod_status_failed')) ds.push({...metrics.pod_status_failed, label: 'Failed', color: '#DC3545'});
             if (hasData('pod_status_unknown')) ds.push({...metrics.pod_status_unknown, label: 'Unknown', color: '#6C757D'});
-            if(ds.length > 0) renderChart('podStatusChart', ds, true, 'Count'); return ds.length > 0;
+            if(ds.length > 0) return renderChart('podStatusChart', ds, true, 'Count'); return ds.length > 0;
+        });
+
+        // --- Pod Limits ---
+        renderOrShowNoData('podCpuOverPodLimitChart', () => {
+            const ds = [];
+            if (hasData('pod_cpu_utilization_over_pod_limit_avg')) ds.push({...metrics.pod_cpu_utilization_over_pod_limit_avg, label: 'avg', color: colors.avg});
+            if (hasData('pod_cpu_utilization_over_pod_limit_max')) ds.push({...metrics.pod_cpu_utilization_over_pod_limit_max, label: 'max', color: colors.max});
+            if (ds.length > 0) return renderChart('podCpuOverPodLimitChart', ds, false, '%');
+            return false;
+        });
+        renderOrShowNoData('podMemoryOverPodLimitChart', () => {
+            const ds = [];
+            if (hasData('pod_memory_utilization_over_pod_limit_avg')) ds.push({...metrics.pod_memory_utilization_over_pod_limit_avg, label: 'avg', color: colors.avg});
+            if (hasData('pod_memory_utilization_over_pod_limit_max')) ds.push({...metrics.pod_memory_utilization_over_pod_limit_max, label: 'max', color: colors.max});
+            if (ds.length > 0) return renderChart('podMemoryOverPodLimitChart', ds, false, '%');
+            return false;
+        });
+        renderOrShowNoData('podCpuOverNodeLimitChart', () => {
+            const ds = [];
+            if (hasData('pod_cpu_utilization_over_node_limit_avg')) ds.push({...metrics.pod_cpu_utilization_over_node_limit_avg, label: 'avg', color: colors.avg});
+            if (hasData('pod_cpu_utilization_over_node_limit_max')) ds.push({...metrics.pod_cpu_utilization_over_node_limit_max, label: 'max', color: colors.max});
+            if (ds.length > 0) return renderChart('podCpuOverNodeLimitChart', ds, false, '%');
+            return false;
+        });
+        renderOrShowNoData('podMemoryOverNodeLimitChart', () => {
+            const ds = [];
+            if (hasData('pod_memory_utilization_over_node_limit_avg')) ds.push({...metrics.pod_memory_utilization_over_node_limit_avg, label: 'avg', color: colors.avg});
+            if (hasData('pod_memory_utilization_over_node_limit_max')) ds.push({...metrics.pod_memory_utilization_over_node_limit_max, label: 'max', color: colors.max});
+            if (ds.length > 0) return renderChart('podMemoryOverNodeLimitChart', ds, false, '%');
+            return false;
         });
         
+        // --- Control Plane ---
         renderOrShowNoData('apiServerRequestsChart', () => {
             const ds = [];
-            if (hasData('apiserver_request_total')) ds.push({...metrics.apiserver_request_total, label: 'request_total', yAxisID: 'y1', color: '#0d6efd'});
-            if (hasData('apiserver_request_duration_seconds')) ds.push({...metrics.apiserver_request_duration_seconds, label: 'request_duration_seconds', yAxisID: 'y2', color: '#fd7e14'});
-            if(ds.length > 0) renderDualAxisChart('apiServerRequestsChart', ds, 'Count', 'Seconds'); return ds.length > 0;
+            if (hasData('apiserver_request_total')) ds.push({...metrics.apiserver_request_total, label: 'requests (total)', yAxisID: 'y1', color: '#0d6efd'});
+            if (hasData('apiserver_request_duration_seconds')) ds.push({...metrics.apiserver_request_duration_seconds, label: 'duration (s)', yAxisID: 'y2', color: '#fd7e14'});
+            if(ds.length > 0) return renderDualAxisChart('apiServerRequestsChart', ds, 'Count', 'Seconds'); return ds.length > 0;
+        });
+        renderOrShowNoData('restClientRequestsChart', () => {
+            const ds = [];
+            if (hasData('rest_client_requests_total')) ds.push({...metrics.rest_client_requests_total, label: 'requests (total)', yAxisID: 'y1', color: '#0d6efd'});
+            if (hasData('rest_client_request_duration_seconds')) ds.push({...metrics.rest_client_request_duration_seconds, label: 'duration (s)', yAxisID: 'y2', color: '#fd7e14'});
+            if(ds.length > 0) return renderDualAxisChart('restClientRequestsChart', ds, 'Count', 'Seconds'); return ds.length > 0;
+        });
+        renderOrShowNoData('admissionEtcdDurationChart', () => {
+            const ds = [];
+            if (hasData('apiserver_admission_controller_admission_duration_seconds')) ds.push({...metrics.apiserver_admission_controller_admission_duration_seconds, label: 'admission duration (s)', yAxisID: 'y1', color: '#0dcaf0'});
+            if (hasData('etcd_request_duration_seconds')) ds.push({...metrics.etcd_request_duration_seconds, label: 'etcd duration (s)', yAxisID: 'y2', color: '#fd7e14'});
+            if(ds.length > 0) return renderDualAxisChart('admissionEtcdDurationChart', ds, 'Seconds', 'Seconds'); return ds.length > 0;
+        });
+        renderOrShowNoData('apiServerStorageChart', () => {
+            const ds = [];
+            if (hasData('apiserver_storage_objects')) ds.push({...metrics.apiserver_storage_objects, label: 'objects', yAxisID: 'y1', color: '#198754'});
+            if (hasData('apiserver_storage_size_bytes')) ds.push({...metrics.apiserver_storage_size_bytes, label: 'size (bytes)', yAxisID: 'y2', color: '#6f42c1'});
+            if(ds.length > 0) return renderDualAxisChart('apiServerStorageChart', ds, 'Count', 'Bytes'); return ds.length > 0;
         });
     }
     
@@ -663,6 +1058,7 @@
             metricsLoaded = true;
             grid.style.display = 'block';
         } catch (error) {
+            console.error("Failed to load metrics:", error);
             errorState.querySelector('p').textContent = `Error: ${error.message}`;
             errorState.style.display = 'block';
         } finally {

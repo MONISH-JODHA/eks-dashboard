@@ -1,0 +1,78 @@
+<!-- templates/_cluster_resources.html -->
+<div id="resources" class="tab-content" style="display: none;">
+    {% if (cluster.workloads is defined) and not cluster.workloads.error %}
+    <div class="resources-container">
+        <!-- Left Pane: Resource Types -->
+        <div class="resource-types-pane">
+            <nav class="resource-nav">
+                <div class="resource-nav-group">
+                    <div class="resource-nav-header">Workloads</div>
+                    <ul>
+                        <li><a href="#" class="resource-nav-link active" data-resource="pod">Pods</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="deployment">Deployments</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="replica_set">ReplicaSets</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="daemon_set">DaemonSets</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="stateful_set">StatefulSets</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="job">Jobs</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="cron_job">CronJobs</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="hpa">HorizontalPodAutoscalers</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="priority_class">PriorityClasses</a></li>
+                    </ul>
+                </div>
+                 <div class="resource-nav-group">
+                    <div class="resource-nav-header">Cluster</div>
+                    <ul>
+                        <li><a href="#" class="resource-nav-link" data-resource="node">Nodes</a></li>
+                    </ul>
+                </div>
+                <div class="resource-nav-group">
+                    <div class="resource-nav-header">Service & Networking</div>
+                     <ul>
+                        <li><a href="#" class="resource-nav-link" data-resource="service">Services</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="endpoint">Endpoints</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="ingress">Ingresses</a></li>
+                    </ul>
+                </div>
+                <div class="resource-nav-group">
+                    <div class="resource-nav-header">Storage</div>
+                     <ul>
+                        <li><a href="#" class="resource-nav-link" data-resource="persistent_volume_claim">PersistentVolumeClaims</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="persistent_volume">PersistentVolumes</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="storage_class">StorageClasses</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="csi_node">CSINodes</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="csi_driver">CSIDrivers</a></li>
+                    </ul>
+                </div>
+            </nav>
+        </div>
+
+        <!-- Right Pane: Resource Details Table -->
+        <div class="resource-details-pane">
+            <div class="resource-table-header">
+                <h3 id="resource-title">Workloads: Pods</h3>
+                <div class="resource-filters">
+                    <select id="resource-namespace-filter" class="form-select"></select>
+                    <input type="text" id="resource-name-filter" class="form-input" placeholder="Filter by name">
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead id="resource-table-head"></thead>
+                    <tbody id="resource-table-body"></tbody>
+                </table>
+            </div>
+             <div id="resource-table-empty" class="no-data-message" style="display: none; padding: 4rem;">
+                <p>No resources found.</p>
+                <p class="text-muted">This cluster does not have any matching resources for the selected type.</p>
+            </div>
+        </div>
+    </div>
+    {% else %}
+        <div class="widget-content">
+             <div class="error-message-box"><strong>Could not load workload data.</strong>
+             <p>Could not connect to the Kubernetes API server or permissions are missing.
+                {% if cluster.workloads.error %}Reason: {{ cluster.workloads.error }}{% endif %}
+             </p></div>
+         </div>
+     {% endif %}
+</div>

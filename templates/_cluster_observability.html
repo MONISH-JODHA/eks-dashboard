@@ -1,8 +1,9 @@
+<!-- START: Corrected _cluster_observability.html -->
 <!-- Observability Tab -->
 <div id="observability" class="tab-content">
-    <div id="metrics-loading-state"><p class="text-muted">Loading metrics...</p></div>
-    <div id="metrics-error-state" style="display: none;"><p class="error-message">Could not load metrics data.</p></div>
-    
+    <div id="metrics-loading-state" class="no-data-message"><p class="text-muted">Loading metrics...</p></div>
+    <div id="metrics-error-state" style="display: none;" class="no-data-message"><p class="error-message">Could not load metrics data.</p></div>
+
     <div class="metrics-container" style="display: none;">
         <h3 class="section-title">Cluster Health Summary</h3>
         <div class="metrics-grid-2col">
@@ -31,6 +32,9 @@
             <div class="widget"><div class="widget-header"><h2>Pod Memory Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podMemoryChart"></canvas></div></div>
             <div class="widget"><div class="widget-header"><h2>Pod CPU Utilization over Pod Limit (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podCpuOverPodLimitChart"></canvas></div></div>
             <div class="widget"><div class="widget-header"><h2>Pod Memory Utilization over Pod Limit (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podMemoryOverPodLimitChart"></canvas></div></div>
+            
+            <!-- ADDED WIDGETS FOR NODE LIMITS -->
+        
             <div class="widget"><div class="widget-header"><h2>Pod Status</h2></div><div class="widget-content chart-widget-content"><canvas id="podStatusChart"></canvas></div></div>
             <div class="widget"><div class="widget-header"><h2>Pod Network (Bytes/s)</h2></div><div class="widget-content chart-widget-content"><canvas id="podNetworkChart"></canvas></div></div>
         </div>
