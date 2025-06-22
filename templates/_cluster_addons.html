@@ -5,20 +5,25 @@
         <div class="widget-content" style="padding:0;">
             <div class="table-container">
                 <table class="data-table">
-                    <thead><tr><th>Name</th><th>Version</th><th>Status</th><th>Health</th><th>Owner</th><th>Publisher</th><th>Modified At</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Version</th><th>Status</th><th>EKS Pod Identity</th><th>IAM role for service account (IRSA)</th></tr></thead>
                     <tbody>
                         {% for addon in cluster.addons %}
                         <tr>
                             <td>{{ addon.addonName }}</td>
                             <td>{{ addon.addonVersion }}</td>
                             <td><span class="status-badge status-{{ addon.status.lower() if addon.status else 'unknown' }}">{{ addon.status }}</span></td>
-                            <td><span class="health-badge health-{{ addon.health_status.lower().replace('_', '-') }}">{{ addon.health_status.replace('_', ' ') | title }}</span></td>
-                            <td>{{ addon.owner }}</td>
-                            <td>{{ addon.publisher }}</td>
-                            <td>{{ addon.modifiedAt.strftime('%Y-%m-%d') if addon.modifiedAt else 'N/A' }}</td>
+                            <!-- MODIFICATION: Use the new pod_identity_display field -->
+                            <td>{{ addon.pod_identity_display or 'Not set' }}</td>
+                            <td>
+                                {% if addon.irsa_role_arn %}
+                                    <span class="code" title="{{ addon.irsa_role_arn }}">{{ addon.irsa_role_arn.split('/')[-1] }}</span>
+                                {% else %}
+                                    Not set
+                                {% endif %}
+                            </td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="7" class="text-muted" style="text-align: center; padding: 2rem;">No add-ons found for this cluster.</td></tr>
+                        <tr><td colspan="5" class="text-muted" style="text-align: center; padding: 2rem;">No add-ons found for this cluster.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

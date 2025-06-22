@@ -23,6 +23,20 @@
         .no-data-message { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; min-height: 250px; text-align: center; color: var(--text-secondary); }
         .no-data-message p { margin: 0.25rem 0; }
         
+        /* MODIFICATION START: Added styles for info-grid */
+        .info-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 1rem 1.5rem;
+            align-items: center;
+        }
+        .info-grid strong {
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-align: left;
+        }
+        /* MODIFICATION END */
+
         /* Vis.js Navigation Buttons */
         .vis-navigation .vis-button { width: 32px !important; height: 32px !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 20px !important; font-weight: bold; color: var(--text-primary) !important; background-color: var(--surface-color) !important; border: 1px solid var(--border-color) !important; border-radius: 6px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important; transition: all 0.2s ease-in-out; }
         .vis-navigation .vis-button:hover { background-color: var(--bg-color) !important; border-color: var(--primary-color) !important; transform: translateY(-1px); }
@@ -450,6 +464,34 @@
         document.getElementById('resource-namespace-filter').addEventListener('change', applyResourceFilters);
         document.getElementById('resource-name-filter').addEventListener('input', applyResourceFilters);
         
+        // MODIFICATION START: Add event listener for resource detail modal
+        const body = document.getElementById('resource-table-body');
+        body.addEventListener('click', (e) => {
+            const row = e.target.closest('tr');
+            if (!row || !row.dataset.name) return;
+            
+            const config = resourceDefinitions[activeResourceType];
+            const name = row.dataset.name; // This is already lowercased from the render function
+            const namespace = row.dataset.namespace;
+            
+            const allItems = workloadsData[config.dataKey] || [];
+            
+            const resourceData = allItems.find(item => {
+                const nameMatch = item.metadata.name.toLowerCase() === name;
+                const nsMatch = !config.hasNamespace || (item.metadata.namespace === namespace);
+                return nameMatch && nsMatch;
+            });
+            
+            if (resourceData) {
+                const modal = document.getElementById('resource-modal');
+                document.getElementById('modal-title').textContent = `${config.title}: ${resourceData.metadata.name}`;
+                document.getElementById('modal-body-content').textContent = JSON.stringify(resourceData, null, 2);
+                modal.classList.add('visible');
+                feather.replace();
+            }
+        });
+        // MODIFICATION END
+
         renderResourceTable(activeResourceType);
     }
 
@@ -533,10 +575,6 @@
                 resetHighlightAndPanel();
             });
         });
-
-        const modal = document.getElementById('resource-modal');
-        document.getElementById('modal-close-btn').addEventListener('click', () => modal.classList.remove('visible'));
-        modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
 
         renderResourceList();
         renderWorkloadGraph();
@@ -1070,6 +1108,14 @@
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('overview').style.display = 'block';
         feather.replace();
+
+        // MODIFICATION START: Generic Modal Setup
+        const modal = document.getElementById('resource-modal');
+        if (modal) {
+            document.getElementById('modal-close-btn').addEventListener('click', () => modal.classList.remove('visible'));
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
+        }
+        // MODIFICATION END
         
         const refreshBtn = document.getElementById('refreshBtn');
         if (refreshBtn) {
@@ -1094,6 +1140,22 @@
                     refreshBtn.innerHTML = '<i data-feather="refresh-cw"></i> Refresh Data';
                     feather.replace();
                 }
+            });
+        }
+
+        // JS for Compute Tab Node Filter
+        const nodegroupFilter = document.getElementById('nodegroup-filter');
+        if (nodegroupFilter) {
+            nodegroupFilter.addEventListener('change', (e) => {
+                const selectedGroup = e.target.value;
+                const nodesTableBody = document.querySelector('#nodes-table tbody');
+                nodesTableBody.querySelectorAll('tr').forEach(row => {
+                    if (selectedGroup === 'all' || row.dataset.nodegroup === selectedGroup) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
             });
         }
     });

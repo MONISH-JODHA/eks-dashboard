@@ -205,24 +205,54 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
 def fetch_addons_for_cluster(eks_client, cluster_name):
     addons_details = []
     try:
-        for page in eks_client.get_paginator('list_addons').paginate(clusterName=cluster_name):
+        paginator = eks_client.get_paginator('list_addons')
+        for page in paginator.paginate(clusterName=cluster_name):
             for addon_name in page.get('addons', []):
                 try:
                     addon_desc = eks_client.describe_addon(clusterName=cluster_name, addonName=addon_name).get('addon', {})
                     if addon_desc:
                         addon_desc['health_status'] = "HEALTHY" if not addon_desc.get('health', {}).get('issues') else "HAS_ISSUES"
+
+                        # --- MODIFICATION START ---
+                        # Correctly fetch EKS Pod Identity, preferring the role name as seen in AWS Console
+                        pod_identity_config = addon_desc.get('podIdentityConfiguration')
+                        addon_desc['pod_identity_display'] = None
+                        if pod_identity_config and isinstance(pod_identity_config, list) and len(pod_identity_config) > 0:
+                            role_arn = pod_identity_config[0].get('roleArn')
+                            if role_arn:
+                                addon_desc['pod_identity_display'] = role_arn.split('/')[-1]
+                            else: # Fallback to service account if role ARN is missing for some reason
+                                addon_desc['pod_identity_display'] = pod_identity_config[0].get('serviceAccount')
+
+                        # Legacy IRSA
+                        addon_desc['irsa_role_arn'] = addon_desc.get('serviceAccountRoleArn')
+                        # --- MODIFICATION END ---
+                        
                         addons_details.append(addon_desc)
-                except ClientError as e: logging.error(f"Error describing addon {addon_name}: {e}")
-    except ClientError as e: logging.error(f"Error listing addons for {cluster_name}: {e}")
+                except ClientError as e:
+                    logging.error(f"Error describing addon {addon_name} in {cluster_name}: {e}")
+    except ClientError as e:
+        logging.error(f"Error listing addons for {cluster_name}: {e}")
     return addons_details
 
 def fetch_fargate_profiles_for_cluster(eks_client, cluster_name):
     profiles = []
     try:
-        for page in eks_client.get_paginator('list_fargate_profiles').paginate(clusterName=cluster_name):
-            profiles.extend(page.get('fargateProfileNames', []))
-    except ClientError as e: logging.error(f"Error fetching fargate profiles for {cluster_name}: {e}")
-    return [{"name": p} for p in profiles]
+        paginator = eks_client.get_paginator('list_fargate_profiles')
+        for page in paginator.paginate(clusterName=cluster_name):
+            for profile_name in page.get('fargateProfileNames', []):
+                try:
+                    # Describe to get status, though the screenshot just shows active
+                    # For now, just listing names is sufficient based on request
+                    profiles.append({"name": profile_name, "status": "ACTIVE"})
+                except ClientError as e:
+                    logging.warning(f"Could not describe fargate profile {profile_name}, assuming active: {e}")
+                    profiles.append({"name": profile_name, "status": "UNKNOWN"})
+    except ClientError as e:
+        logging.error(f"Error listing fargate profiles for {cluster_name}: {e}")
+        return [{"name": "Error fetching profiles", "status": "ERROR"}]
+    return profiles
+
 
 def fetch_oidc_provider_for_cluster(cluster_raw):
     return cluster_raw.get('identity', {}).get('oidc', {}).get('issuer')
@@ -348,12 +378,14 @@ def _process_cluster_data(c_raw, with_details=False, detail_results=None):
 
     cluster_data = {
         "name": c_raw.get("name"), "arn": c_raw.get("arn"), "account_id": c_raw.get("arn", "::::").split(':')[4],
+        "roleArn": c_raw.get("roleArn"), "endpoint": c_raw.get("endpoint"),
         "version": version, "platformVersion": c_raw.get("platformVersion"), "status": c_raw.get("status", "Unknown"),
         "region": c_raw.get("region"), "createdAt": c_raw.get("createdAt", now), "tags": c_raw.get("tags", {}),
         "health_issues": c_raw.get("health", {}).get("issues", []),
         "health_status_summary": "HEALTHY" if not c_raw.get("health", {}).get("issues", []) else "HAS_ISSUES",
         "upgrade_insight_status": "PASSING" if version == "Unknown" or version >= "1.29" else "NEEDS_ATTENTION",
         "is_nearing_eol_90_days": bool(eol_date and now < eol_date <= ninety_days_from_now),
+        "eks_auto_mode": "Enabled" if c_raw.get('accessConfig', {}).get('authenticationMode') == 'API_AND_CONFIG_MAP' else "Disabled",
     }
 
     if with_details and detail_results:

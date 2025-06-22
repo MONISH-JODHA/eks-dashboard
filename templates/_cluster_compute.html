@@ -1,27 +1,96 @@
 <!-- Compute Tab -->
 <div id="compute" class="tab-content">
+    <!-- Nodes Section -->
     <div class="widget">
-        <div class="widget-header"><h2>Nodegroups & Compute Nodes</h2></div>
+        <div class="widget-header">
+            <h2>Nodes</h2>
+            <div class="resource-filters">
+                <select id="nodegroup-filter" class="form-select" style="min-width: 220px;">
+                    <option value="all">All Node Groups</option>
+                    {% for ng in cluster.nodegroups_data if not ng.is_karpenter_node %}
+                    <option value="{{ ng.name }}">{{ ng.name }}</option>
+                    {% endfor %}
+                    <option value="karpenter">Karpenter/Auto-Mode</option>
+                </select>
+            </div>
+        </div>
+        <div class="widget-content" style="padding:0;">
+            <div class="table-container">
+                <table class="data-table" id="nodes-table">
+                    <thead><tr><th>Name</th><th>Status</th><th>Instance Type</th><th>Node Group / Compute</th><th>Created At</th></tr></thead>
+                    <tbody>
+                        {% if cluster.workloads and cluster.workloads.nodes %}
+                            {% for node in cluster.workloads.nodes %}
+                                <!-- MODIFICATION START: Use .get() for safe label access -->
+                                {% set nodegroup_name = node.metadata.labels.get('eks.amazonaws.com/nodegroup') %}
+                                {% set is_karpenter = 'karpenter.sh/provisioner-name' in node.metadata.labels %}
+                                <!-- MODIFICATION END -->
+                                {% set compute_type = 'Karpenter' if is_karpenter else (nodegroup_name or 'EC2') %}
+                                {% set node_status_obj = (node.status.conditions | selectattr('type', 'equalto', 'Ready') | list | first) %}
+                                {% set node_status = 'Ready' if node_status_obj and node_status_obj.status == 'True' else 'NotReady' %}
+                                <tr data-nodegroup="{{ nodegroup_name or 'karpenter' if is_karpenter else 'other' }}">
+                                    <td>{{ node.metadata.name }}</td>
+                                    <td><span class="status-badge status-{{ node_status.lower() }}">{{ node_status }}</span></td>
+                                    <td>{{ node.metadata.labels.get('node.kubernetes.io/instance-type', 'N/A') }}</td>
+                                    <td>{{ compute_type }}</td>
+                                    <td>{{ node.metadata.creationTimestamp.split('T')[0] if node.metadata.creationTimestamp else 'N/A' }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr><td colspan="5" class="text-muted" style="text-align: center; padding: 2rem;">Node data not available. Workload fetching might be disabled or failed.</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Groups Section -->
+    <div class="widget">
+        <div class="widget-header"><h2>Node Groups</h2></div>
         <div class="widget-content" style="padding:0;">
             <div class="table-container">
                 <table class="data-table">
-                    <thead><tr><th>Name</th><th>Status</th><th>Mode</th><th>Instance Type(s)</th><th>K8s Version</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Status</th><th>Desired Size</th><th>AMI Release Version</th><th>K8s Version</th><th>Action</th></tr></thead>
                     <tbody>
-                        {% for ng in cluster.nodegroups_data %}
+                        {% set managed_ngs = cluster.nodegroups_data | selectattr('is_karpenter_node', 'equalto', false) | list %}
+                        {% for ng in managed_ngs %}
                         <tr>
                             <td>{{ ng.name }}</td>
                             <td><span class="status-badge status-{{ ng.status.lower() if ng.status else 'unknown' }}">{{ ng.status }}</span></td>
-                            <td>{% if ng.is_karpenter_node %}<span class="tag">Auto Mode</span>{% else %}<span class="tag">Managed</span>{% endif %}</td>
-                            <td>{{ ng.instanceTypes | join(', ') }}</td>
+                            <td>{{ ng.desiredSize }}</td>
+                            <td>{{ ng.releaseVersion }}</td>
                             <td>{{ ng.version }}</td>
                             <td>
-                                {% if not ng.is_karpenter_node and ng.releaseVersion and ng.version and ng.version in ng.releaseVersion %}
+                                {% if not ng.is_karpenter_node and ng.version != cluster.version %}
                                 <button class="action-btn upgrade-btn" data-nodegroup-name="{{ ng.name }}"><i data-feather="chevrons-up"></i> Upgrade Now</button>
                                 {% else %}<span class="text-muted">Up to date</span>{% endif %}
                             </td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="6" class="text-muted" style="text-align: center; padding: 2rem;">No nodegroups or compute nodes found.</td></tr>
+                        <tr><td colspan="6" class="text-muted" style="text-align: center; padding: 2rem;">No managed nodegroups found.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Fargate Profiles Section -->
+    <div class="widget">
+        <div class="widget-header"><h2>Fargate Profiles</h2></div>
+        <div class="widget-content" style="padding:0;">
+            <div class="table-container">
+                <table class="data-table">
+                    <thead><tr><th>Name</th><th>Status</th></tr></thead>
+                    <tbody>
+                        {% for profile in cluster.fargate_profiles %}
+                        <tr>
+                            <td>{{ profile.name }}</td>
+                            <td><span class="status-badge status-{{ profile.status.lower() if profile.status else 'unknown' }}">{{ profile.status or 'Active' }}</span></td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="2" class="text-muted" style="text-align: center; padding: 2rem;">No Fargate profiles found.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

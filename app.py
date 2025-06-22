@@ -181,6 +181,7 @@ async def list_clusters(request: Request, user: dict = Depends(get_current_user)
 @app.get("/clusters/{account_id}/{region}/{cluster_name}", response_class=HTMLResponse, name="read_cluster_detail")
 async def read_cluster_detail(request: Request, account_id: str, region: str, cluster_name: str, user: dict = Depends(get_current_user)):
     if isinstance(user, RedirectResponse): return user
+    request.state.now = datetime.now(timezone.utc)
     
     cache_key = f"cluster_{account_id}_{region}_{cluster_name}"
     if cache_key in cache:

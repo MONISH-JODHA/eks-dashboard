@@ -2,26 +2,48 @@
 <div id="overview" class="tab-content active">
     <div class="widget">
         <div class="widget-header">
-            <h2>Cluster Summary</h2>
-            <button id="refreshBtn" class="action-button" title="Refresh data for this cluster">
+            <h2>Cluster Details</h2>
+            <button id="refreshBtn" class="action-btn" title="Refresh data for this cluster">
                 <i data-feather="refresh-cw"></i> Refresh Data
             </button>
         </div>
         <div class="widget-content">
-            <div class="summary-grid">
-                <div><strong>ARN:</strong> <span class="code">{{ cluster.arn }}</span></div>
-                <div><strong>Status:</strong> <span class="status-badge status-{{ cluster.status.lower() if cluster.status else 'unknown' }}">{{ cluster.status }}</span></div>
-                <div><strong>Region:</strong> <span>{{ cluster.region }}</span></div>
-                <div><strong>Account ID:</strong> <span>{{ cluster.account_id }}</span></div>
-                <div><strong>K8s Version:</strong> <span>{{ cluster.version }}</span></div>
-                <div><strong>Platform Version:</strong> <span>{{ cluster.platformVersion }}</span></div>
-                <div><strong>Created At:</strong> <span>{{ cluster.createdAt.strftime('%Y-%m-%d %H:%M Z') if cluster.createdAt else 'N/A' }}</span></div>
-                <!-- MODIFICATION: Added Last Refreshed Time -->
-                <div><strong>Last Refreshed:</strong> <span id="lastRefreshedTime">{{ cluster.refreshed_at.strftime('%Y-%m-%d %H:%M:%S Z') if cluster.refreshed_at else 'N/A' }}</span></div>
-                <div><strong>OIDC Provider:</strong> <span class="code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
+            <div class="summary-grid-large">
+                <div><strong>API server endpoint:</strong> <span class="code">{{ cluster.endpoint or 'N/A' }}</span></div>
+                <div><strong>Cluster IAM role:</strong> <span class="code">{{ cluster.roleArn or 'N/A' }}</span></div>
+                <div><strong>OpenID Connect provider URL:</strong> <span class="code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
+                <div><strong>Cluster ARN:</strong> <span class="code">{{ cluster.arn }}</span></div>
             </div>
         </div>
     </div>
+
+    <div class="widget-grid-dynamic" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));">
+        <div class="widget">
+            <div class="widget-header"><h2>Cluster Info</h2></div>
+            <div class="widget-content">
+                <!-- MODIFICATION START: Added info-grid for better layout -->
+                <div class="info-grid">
+                    <strong>Status</strong><span class="status-badge status-{{ cluster.status.lower() if cluster.status else 'unknown' }}">{{ cluster.status }}</span>
+                    <strong>K8s Version</strong><span>{{ cluster.version }}</span>
+                    <strong>Platform Version</strong><span>{{ cluster.platformVersion }}</span>
+                    <strong>Created At</strong><span>{{ cluster.createdAt.strftime('%Y-%m-%d %H:%M Z') if cluster.createdAt else 'N/A' }}</span>
+                    <strong>Account ID</strong><span>{{ cluster.account_id }}</span>
+                    <strong>Region</strong><span>{{ cluster.region }}</span>
+                </div>
+                <!-- MODIFICATION END -->
+            </div>
+        </div>
+        <div class="widget">
+             <div class="widget-header"><h2>EKS Auto Mode</h2></div>
+             <div class="widget-content">
+                <div class="info-grid">
+                    <strong>Status</strong><span class="status-badge status-{{ 'active' if cluster.eks_auto_mode == 'Enabled' else 'disabled' }}">{{ cluster.eks_auto_mode }}</span>
+                    <strong style="grid-column: 1 / -1; margin-top: 1rem; color: var(--text-secondary); font-weight: 400; font-size: .9rem;">EKS automates routine cluster tasks for compute, storage, and networking to meet application compute needs.</strong>
+                </div>
+             </div>
+        </div>
+    </div>
+
     <div class="widget">
         <div class="widget-header"><h2>Networking & Security</h2></div>
         <div class="widget-content">
@@ -29,7 +51,9 @@
                 <div><strong>VPC ID:</strong> <span class="code">{{ cluster.networking.vpcId or 'N/A' }}</span></div>
                 <div><strong>Endpoint Public Access:</strong> <span class="status-badge status-{{ 'failed' if cluster.networking.endpointPublicAccess else 'active' }}">{{ 'Enabled' if cluster.networking.endpointPublicAccess else 'Disabled' }}</span></div>
                 <div><strong>Endpoint Private Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPrivateAccess else 'failed' }}">{{ 'Enabled' if cluster.networking.endpointPrivateAccess else 'Disabled' }}</span></div>
-                <div><strong>Subnets:</strong> <div class="tags-container" style="margin-top: 5px;">{% for id in cluster.networking.subnetIds %}<span class="tag code">{{ id }}</span>{% else %}<span>N/A</span>{% endfor %}</div></div>
+                <div><strong>Cluster security group:</strong> <span class="code">{{ cluster.networking.clusterSecurityGroupId or 'N/A' }}</span></div>
+                <div><strong>Public access CIDRs:</strong> <span class="code">{{ (cluster.networking.publicAccessCidrs or ['N/A']) | join(', ') }}</span></div>
+                <div style="grid-column: 1 / -1;"><strong>Subnets:</strong> <div class="tags-container" style="margin-top: 5px;">{% for id in cluster.networking.subnetIds %}<span class="tag code">{{ id }}</span>{% else %}<span>N/A</span>{% endfor %}</div></div>
             </div>
         </div>
     </div>
