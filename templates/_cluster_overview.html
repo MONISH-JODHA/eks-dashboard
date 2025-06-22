@@ -1,0 +1,48 @@
+<!-- Overview Tab -->
+<div id="overview" class="tab-content active">
+    <div class="widget">
+        <div class="widget-header">
+            <h2>Cluster Summary</h2>
+            <button id="refreshBtn" class="action-button" title="Refresh data for this cluster">
+                <i data-feather="refresh-cw"></i> Refresh Data
+            </button>
+        </div>
+        <div class="widget-content">
+            <div class="summary-grid">
+                <div><strong>ARN:</strong> <span class="code">{{ cluster.arn }}</span></div>
+                <div><strong>Status:</strong> <span class="status-badge status-{{ cluster.status.lower() if cluster.status else 'unknown' }}">{{ cluster.status }}</span></div>
+                <div><strong>Region:</strong> <span>{{ cluster.region }}</span></div>
+                <div><strong>Account ID:</strong> <span>{{ cluster.account_id }}</span></div>
+                <div><strong>K8s Version:</strong> <span>{{ cluster.version }}</span></div>
+                <div><strong>Platform Version:</strong> <span>{{ cluster.platformVersion }}</span></div>
+                <div><strong>Created At:</strong> <span>{{ cluster.createdAt.strftime('%Y-%m-%d %H:%M Z') if cluster.createdAt else 'N/A' }}</span></div>
+                <div><strong>OIDC Provider:</strong> <span class="code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
+            </div>
+        </div>
+    </div>
+    <div class="widget">
+        <div class="widget-header"><h2>Networking & Security</h2></div>
+        <div class="widget-content">
+             <div class="summary-grid">
+                <div><strong>VPC ID:</strong> <span class="code">{{ cluster.networking.vpcId or 'N/A' }}</span></div>
+                <div><strong>Endpoint Public Access:</strong> <span class="status-badge status-{{ 'failed' if cluster.networking.endpointPublicAccess else 'active' }}">{{ 'Enabled' if cluster.networking.endpointPublicAccess else 'Disabled' }}</span></div>
+                <div><strong>Endpoint Private Access:</strong> <span class="status-badge status-{{ 'active' if cluster.networking.endpointPrivateAccess else 'failed' }}">{{ 'Enabled' if cluster.networking.endpointPrivateAccess else 'Disabled' }}</span></div>
+                <div><strong>Subnets:</strong> <div class="tags-container" style="margin-top: 5px;">{% for id in cluster.networking.subnetIds %}<span class="tag code">{{ id }}</span>{% else %}<span>N/A</span>{% endfor %}</div></div>
+            </div>
+        </div>
+    </div>
+    {% if cluster.health_issues %}
+    <div class="widget">
+        <div class="widget-header"><h2><i data-feather="alert-circle" style="color: var(--status-updating);"></i> Health Issues</h2></div>
+        <div class="widget-content">
+            {% for issue in cluster.health_issues %}
+            <div class="health-issue-box">
+                <strong class="code">{{ issue.code }}</strong>
+                <p>{{ issue.message }}</p>
+                <span>Resource IDs: {% for id in issue.resourceIds %}<span class="tag code">{{ id }}</span>{% endfor %}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>

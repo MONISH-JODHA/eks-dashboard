@@ -1,0 +1,46 @@
+<!-- Observability Tab -->
+<div id="observability" class="tab-content">
+    <div id="metrics-loading-state"><p class="text-muted">Loading metrics...</p></div>
+    <div id="metrics-error-state" style="display: none;"><p class="error-message">Could not load metrics data.</p></div>
+    
+    <div class="metrics-container" style="display: none;">
+        <h3 class="section-title">Cluster Health Summary</h3>
+        <div class="metrics-grid-2col">
+            <div class="widget"><div class="widget-header"><h2>Node Status</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeStatusChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Container Restarts (Sum)</h2></div><div class="widget-content chart-widget-content"><canvas id="containerRestartsChart"></canvas></div></div>
+        </div>
+        
+        <h3 class="section-title">Nodes Status and Capacity</h3>
+        <div class="metrics-grid-2col">
+            <div class="widget"><div class="widget-header"><h2>Number of Ready Nodes</h2></div><div class="widget-content chart-widget-content"><canvas id="numReadyNodesChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Nodes Error Condition</h2></div><div class="widget-content chart-widget-content"><canvas id="nodesErrorConditionChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Running Pods per Node</h2></div><div class="widget-content chart-widget-content"><canvas id="runningPodsPerNodeChart"></canvas></div></div>
+        </div>
+
+        <h3 class="section-title">Node Performance</h3>
+        <div class="metrics-grid-2col">
+            <div class="widget"><div class="widget-header"><h2>Node CPU Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeCpuChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Node Memory Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeMemoryChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Node Network Total Bytes (Bytes/s)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeNetworkChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Node Filesystem Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="nodeFsChart"></canvas></div></div>
+        </div>
+
+        <h3 class="section-title">Pod Performance and Limits</h3>
+         <div class="metrics-grid-2col">
+            <div class="widget"><div class="widget-header"><h2>Pod CPU Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podCpuChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Pod Memory Utilization (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podMemoryChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Pod CPU Utilization over Pod Limit (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podCpuOverPodLimitChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Pod Memory Utilization over Pod Limit (%)</h2></div><div class="widget-content chart-widget-content"><canvas id="podMemoryOverPodLimitChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Pod Status</h2></div><div class="widget-content chart-widget-content"><canvas id="podStatusChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>Pod Network (Bytes/s)</h2></div><div class="widget-content chart-widget-content"><canvas id="podNetworkChart"></canvas></div></div>
+        </div>
+        
+        <h3 class="section-title">Control Plane</h3>
+        <div class="metrics-grid-2col">
+            <div class="widget"><div class="widget-header"><h2>API Server Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="apiServerRequestsChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>REST Client Requests</h2></div><div class="widget-content chart-widget-content"><canvas id="restClientRequestsChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>API Server Admission / ETCD Duration</h2></div><div class="widget-content chart-widget-content"><canvas id="admissionEtcdDurationChart"></canvas></div></div>
+            <div class="widget"><div class="widget-header"><h2>API Server Storage</h2></div><div class="widget-content chart-widget-content"><canvas id="apiServerStorageChart"></canvas></div></div>
+        </div>
+    </div>
+</div>

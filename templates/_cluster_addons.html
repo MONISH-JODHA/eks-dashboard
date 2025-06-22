@@ -1,0 +1,28 @@
+<!-- Add-ons Tab -->
+<div id="addons" class="tab-content">
+     <div class="widget">
+        <div class="widget-header"><h2>Cluster Add-ons</h2></div>
+        <div class="widget-content" style="padding:0;">
+            <div class="table-container">
+                <table class="data-table">
+                    <thead><tr><th>Name</th><th>Version</th><th>Status</th><th>Health</th><th>Owner</th><th>Publisher</th><th>Modified At</th></tr></thead>
+                    <tbody>
+                        {% for addon in cluster.addons %}
+                        <tr>
+                            <td>{{ addon.addonName }}</td>
+                            <td>{{ addon.addonVersion }}</td>
+                            <td><span class="status-badge status-{{ addon.status.lower() if addon.status else 'unknown' }}">{{ addon.status }}</span></td>
+                            <td><span class="health-badge health-{{ addon.health_status.lower().replace('_', '-') }}">{{ addon.health_status.replace('_', ' ') | title }}</span></td>
+                            <td>{{ addon.owner }}</td>
+                            <td>{{ addon.publisher }}</td>
+                            <td>{{ addon.modifiedAt.strftime('%Y-%m-%d') if addon.modifiedAt else 'N/A' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="7" class="text-muted" style="text-align: center; padding: 2rem;">No add-ons found for this cluster.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

@@ -491,6 +491,9 @@ body {
     font-size: 1.25rem; font-weight: 600; margin: 2.5rem 0 1.5rem 0;
     padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);
 }
+.metrics-grid-3col {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 1.5rem;
+}
 .metrics-grid-2col {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 1.5rem;
 }
@@ -689,7 +692,7 @@ body {
 
 /* --- NEW: Observability Tab Layout --- */
 .observability-container {
-    display: none; /* Hidden by default, shown by JS */
+    display: flex; /* Changed from none to flex */
     flex-direction: row;
     align-items: flex-start;
     gap: 1.5rem;
@@ -712,14 +715,27 @@ body {
     padding-bottom: 0.75rem;
     border-bottom: 1px solid var(--border-color);
 }
-.view-switcher {
+.view-switcher, .filter-group {
     list-style: none;
     padding: 0;
-    margin: 0;
+    margin: 0 0 1.5rem 0;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
 }
+.filter-group:last-child {
+    margin-bottom: 0;
+}
+.filter-group select {
+    width: 100%;
+    padding: 0.5rem;
+    background-color: var(--surface-color);
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
 .view-switcher li label {
     display: flex;
     align-items: center;
@@ -737,18 +753,14 @@ body {
     background-color: var(--bg-color);
     color: var(--text-primary);
 }
-.view-switcher li label.active {
+.view-switcher li input[type="radio"] {
+    display: none; /* Hide the radio button */
+}
+.view-switcher li input[type="radio"]:checked + label {
     background-color: var(--primary-color-light);
     border-color: var(--primary-color);
     color: var(--primary-color);
     font-weight: 600;
-}
-.view-switcher li input[type="radio"] {
-    margin: 0;
-    accent-color: var(--primary-color);
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
 }
 .observability-main-content {
     flex-grow: 1;
@@ -765,7 +777,7 @@ body {
 
 /* --- Responsive Design --- */
 @media (max-width: 1200px) {
-    .widget-grid-dynamic {
+    .widget-grid-dynamic, .metrics-grid-2col, .metrics-grid-3col {
         grid-template-columns: 1fr;
     }
 }

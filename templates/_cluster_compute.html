@@ -1,0 +1,31 @@
+<!-- Compute Tab -->
+<div id="compute" class="tab-content">
+    <div class="widget">
+        <div class="widget-header"><h2>Nodegroups & Compute Nodes</h2></div>
+        <div class="widget-content" style="padding:0;">
+            <div class="table-container">
+                <table class="data-table">
+                    <thead><tr><th>Name</th><th>Status</th><th>Mode</th><th>Instance Type(s)</th><th>K8s Version</th><th>Action</th></tr></thead>
+                    <tbody>
+                        {% for ng in cluster.nodegroups_data %}
+                        <tr>
+                            <td>{{ ng.name }}</td>
+                            <td><span class="status-badge status-{{ ng.status.lower() if ng.status else 'unknown' }}">{{ ng.status }}</span></td>
+                            <td>{% if ng.is_karpenter_node %}<span class="tag">Auto Mode</span>{% else %}<span class="tag">Managed</span>{% endif %}</td>
+                            <td>{{ ng.instanceTypes | join(', ') }}</td>
+                            <td>{{ ng.version }}</td>
+                            <td>
+                                {% if not ng.is_karpenter_node and ng.releaseVersion and ng.version and ng.version in ng.releaseVersion %}
+                                <button class="action-btn upgrade-btn" data-nodegroup-name="{{ ng.name }}"><i data-feather="chevrons-up"></i> Upgrade Now</button>
+                                {% else %}<span class="text-muted">Up to date</span>{% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" class="text-muted" style="text-align: center; padding: 2rem;">No nodegroups or compute nodes found.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
