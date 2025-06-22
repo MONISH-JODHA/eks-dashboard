@@ -23,7 +23,6 @@
         .no-data-message { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; min-height: 250px; text-align: center; color: var(--text-secondary); }
         .no-data-message p { margin: 0.25rem 0; }
         
-        /* MODIFICATION START: Added styles for info-grid */
         .info-grid {
             display: grid;
             grid-template-columns: auto 1fr;
@@ -35,7 +34,6 @@
             color: var(--text-secondary);
             text-align: left;
         }
-        /* MODIFICATION END */
 
         /* Vis.js Navigation Buttons */
         .vis-navigation .vis-button { width: 32px !important; height: 32px !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 20px !important; font-weight: bold; color: var(--text-primary) !important; background-color: var(--surface-color) !important; border: 1px solid var(--border-color) !important; border-radius: 6px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important; transition: all 0.2s ease-in-out; }
@@ -127,6 +125,10 @@
         .resource-filters { display: flex; gap: 1rem; }
         .resource-details-pane .table-container { flex: 1; overflow-y: auto; border: none; }
         .resource-details-pane .data-table { width: 100%; }
+        /* Add cursor pointer to table rows in resources tab */
+        #resource-table-body tr { cursor: pointer; }
+        #resource-table-body tr:hover { background-color: var(--bg-color); }
+
 
         /* Modal Styles */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); display: none; justify-content: center; align-items: center; z-index: 1000; }
@@ -247,19 +249,19 @@
         },
         replica_set: {
             dataKey: 'replica_sets', title: 'ReplicaSets', hasNamespace: true,
-            columns: ['Name', 'Namespace', 'Desired', 'Current', 'Ready', 'Age'],
+            columns: ['Name', 'Namespace', 'Ready', 'Desired', 'Current', 'Age'],
             render: r => `<tr data-name="${r.metadata.name.toLowerCase()}" data-namespace="${r.metadata.namespace}">
                             <td>${r.metadata.name}</td>
                             <td>${r.metadata.namespace}</td>
-                            <td>${r.spec.replicas}</td>
-                            <td>${r.status.replicas || 0}</td>
                             <td>${r.status.readyReplicas || 0}</td>
+                            <td>${r.spec.replicas || 0}</td>
+                            <td>${r.status.replicas || 0}</td>
                             <td>${r.age || 'N/A'}</td>
                          </tr>`
         },
         daemon_set: {
             dataKey: 'daemon_sets', title: 'DaemonSets', hasNamespace: true,
-            columns: ['Name', 'Namespace', 'Desired', 'Current', 'Ready', 'Up-to-date', 'Available'],
+            columns: ['Name', 'Namespace', 'Desired', 'Current', 'Ready', 'Up-to-date', 'Available', 'Age'],
             render: d => `<tr data-name="${d.metadata.name.toLowerCase()}" data-namespace="${d.metadata.namespace}">
                             <td>${d.metadata.name}</td>
                             <td>${d.metadata.namespace}</td>
@@ -268,6 +270,7 @@
                             <td>${d.status.numberReady}</td>
                             <td>${d.status.updatedNumberScheduled}</td>
                             <td>${d.status.numberAvailable}</td>
+                            <td>${d.age || 'N/A'}</td>
                          </tr>`
         },
         stateful_set: {
@@ -310,7 +313,7 @@
         },
         hpa: {
             dataKey: 'hpas', title: 'HorizontalPodAutoscalers', hasNamespace: true,
-            columns: ['Name', 'Namespace', 'Reference', 'Min Pods', 'Max Pods', 'Replicas'],
+            columns: ['Name', 'Namespace', 'Reference', 'Min Pods', 'Max Pods', 'Replicas', 'Age'],
             render: h => `<tr data-name="${h.metadata.name.toLowerCase()}" data-namespace="${h.metadata.namespace}">
                             <td>${h.metadata.name}</td>
                             <td>${h.metadata.namespace}</td>
@@ -318,6 +321,7 @@
                             <td>${h.spec.minReplicas}</td>
                             <td>${h.spec.maxReplicas}</td>
                             <td>${h.status.currentReplicas}</td>
+                            <td>${h.age || 'N/A'}</td>
                          </tr>`
         },
         priority_class: {
@@ -332,7 +336,7 @@
         },
         node: {
             dataKey: 'nodes', title: 'Nodes', hasNamespace: false,
-            columns: ['Name', 'Status', 'Roles', 'Version', 'Internal IP'],
+            columns: ['Name', 'Status', 'Roles', 'Version', 'Internal IP', 'Age'],
             render: n => {
                 const readyCond = n.status.conditions.find(c => c.type === 'Ready');
                 const status = readyCond ? (readyCond.status === 'True' ? 'Ready' : 'NotReady') : 'Unknown';
@@ -343,6 +347,7 @@
                             <td>${roles}</td>
                             <td>${n.status.nodeInfo.kubeletVersion}</td>
                             <td>${n.status.addresses.find(a => a.type === 'InternalIP')?.address || 'N/A'}</td>
+                            <td>${n.age || 'N/A'}</td>
                          </tr>`
             }
         },
@@ -383,6 +388,26 @@
                             <td>${i.status.loadBalancer?.ingress?.[0]?.hostname || i.status.loadBalancer?.ingress?.[0]?.ip || ''}</td>
                             <td>80, 443</td>
                             <td>${i.age || 'N/A'}</td>
+                         </tr>`
+        },
+        config_map: {
+            dataKey: 'config_maps', title: 'ConfigMaps', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Data Keys', 'Age'],
+            render: cm => `<tr data-name="${cm.metadata.name.toLowerCase()}" data-namespace="${cm.metadata.namespace}">
+                            <td>${cm.metadata.name}</td>
+                            <td>${cm.metadata.namespace}</td>
+                            <td>${cm.data ? Object.keys(cm.data).length : 0}</td>
+                            <td>${cm.age || 'N/A'}</td>
+                         </tr>`
+        },
+        secret: {
+            dataKey: 'secrets', title: 'Secrets', hasNamespace: true,
+            columns: ['Name', 'Namespace', 'Type', 'Age'],
+            render: s => `<tr data-name="${s.metadata.name.toLowerCase()}" data-namespace="${s.metadata.namespace}">
+                            <td>${s.metadata.name}</td>
+                            <td>${s.metadata.namespace}</td>
+                            <td>${s.type}</td>
+                            <td>${s.age || 'N/A'}</td>
                          </tr>`
         },
         persistent_volume_claim: {
@@ -464,14 +489,13 @@
         document.getElementById('resource-namespace-filter').addEventListener('change', applyResourceFilters);
         document.getElementById('resource-name-filter').addEventListener('input', applyResourceFilters);
         
-        // MODIFICATION START: Add event listener for resource detail modal
         const body = document.getElementById('resource-table-body');
         body.addEventListener('click', (e) => {
             const row = e.target.closest('tr');
             if (!row || !row.dataset.name) return;
             
             const config = resourceDefinitions[activeResourceType];
-            const name = row.dataset.name; // This is already lowercased from the render function
+            const name = row.dataset.name;
             const namespace = row.dataset.namespace;
             
             const allItems = workloadsData[config.dataKey] || [];
@@ -484,13 +508,12 @@
             
             if (resourceData) {
                 const modal = document.getElementById('resource-modal');
-                document.getElementById('modal-title').textContent = `${config.title}: ${resourceData.metadata.name}`;
+                document.getElementById('modal-title').textContent = `${config.title.slice(0, -1)}: ${resourceData.metadata.name}`;
                 document.getElementById('modal-body-content').textContent = JSON.stringify(resourceData, null, 2);
                 modal.classList.add('visible');
                 feather.replace();
             }
         });
-        // MODIFICATION END
 
         renderResourceTable(activeResourceType);
     }
@@ -1109,13 +1132,11 @@
         document.getElementById('overview').style.display = 'block';
         feather.replace();
 
-        // MODIFICATION START: Generic Modal Setup
         const modal = document.getElementById('resource-modal');
         if (modal) {
             document.getElementById('modal-close-btn').addEventListener('click', () => modal.classList.remove('visible'));
             modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
         }
-        // MODIFICATION END
         
         const refreshBtn = document.getElementById('refreshBtn');
         if (refreshBtn) {

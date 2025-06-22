@@ -34,6 +34,13 @@
                     </ul>
                 </div>
                 <div class="resource-nav-group">
+                    <div class="resource-nav-header">Config and Secrets</div>
+                    <ul>
+                        <li><a href="#" class="resource-nav-link" data-resource="config_map">ConfigMaps</a></li>
+                        <li><a href="#" class="resource-nav-link" data-resource="secret">Secrets</a></li>
+                    </ul>
+                </div>
+                <div class="resource-nav-group">
                     <div class="resource-nav-header">Storage</div>
                      <ul>
                         <li><a href="#" class="resource-nav-link" data-resource="persistent_volume_claim">PersistentVolumeClaims</a></li>
@@ -49,7 +56,7 @@
         <!-- Right Pane: Resource Details Table -->
         <div class="resource-details-pane">
             <div class="resource-table-header">
-                <h3 id="resource-title">Workloads: Pods</h3>
+                <h3 id="resource-title">Pods</h3>
                 <div class="resource-filters">
                     <select id="resource-namespace-filter" class="form-select"></select>
                     <input type="text" id="resource-name-filter" class="form-input" placeholder="Filter by name">

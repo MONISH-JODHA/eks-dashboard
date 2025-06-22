@@ -12,7 +12,6 @@
                             <td>{{ addon.addonName }}</td>
                             <td>{{ addon.addonVersion }}</td>
                             <td><span class="status-badge status-{{ addon.status.lower() if addon.status else 'unknown' }}">{{ addon.status }}</span></td>
-                            <!-- MODIFICATION: Use the new pod_identity_display field -->
                             <td>{{ addon.pod_identity_display or 'Not set' }}</td>
                             <td>
                                 {% if addon.irsa_role_arn %}
