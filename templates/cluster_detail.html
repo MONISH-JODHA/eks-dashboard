@@ -13,46 +13,100 @@
     <!-- Page-specific styles -->
     <style>
         .widget-content[style*="padding: 0"] .table-container {
-            border-top: none;
-            border-radius: 0 0 var(--border-radius) var(--border-radius);
+            border-top: none; border-radius: 0 0 var(--border-radius) var(--border-radius);
+            max-height: 60vh;
         }
-        .log-status-list {
-            list-style-type: none; padding: 0; margin: 0;
-        }
-        .log-status-item {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);
-        }
+        .log-status-list { list-style-type: none; padding: 0; margin: 0; }
+        .log-status-item { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color); }
         .log-status-item:last-child { border-bottom: none; }
         .log-name { font-weight: 500; }
-        .no-data-message {
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            height: 100%; min-height: 250px; text-align: center; color: var(--text-secondary);
-        }
+        .no-data-message { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; min-height: 250px; text-align: center; color: var(--text-secondary); }
         .no-data-message p { margin: 0.25rem 0; }
-
-        /* Enhanced visibility and styling for Vis.js navigation buttons */
-        .vis-navigation .vis-button {
-            width: 32px !important; height: 32px !important; padding: 0 !important;
-            display: flex !important; align-items: center !important; justify-content: center !important;
-            font-size: 20px !important; font-weight: bold; color: var(--text-primary) !important;
-            background-color: var(--surface-color) !important; border: 1px solid var(--border-color) !important;
-            border-radius: 6px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
-            transition: all 0.2s ease-in-out;
-            -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
-        }
-        .vis-navigation .vis-button:hover {
-            background-color: var(--bg-color) !important; border-color: var(--primary-color) !important;
-            transform: translateY(-1px);
-        }
+        
+        /* Vis.js Navigation Buttons */
+        .vis-navigation .vis-button { width: 32px !important; height: 32px !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 20px !important; font-weight: bold; color: var(--text-primary) !important; background-color: var(--surface-color) !important; border: 1px solid var(--border-color) !important; border-radius: 6px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important; transition: all 0.2s ease-in-out; }
+        .vis-navigation .vis-button:hover { background-color: var(--bg-color) !important; border-color: var(--primary-color) !important; transform: translateY(-1px); }
         .vis-navigation .vis-button::before { line-height: 1; }
         .vis-navigation .vis-button.vis-zoomIn::before { content: '+' !important; }
-        .vis-navigation .vis-button.vis-zoomOut::before { content: '−' !important; } /* Minus sign */
-        .vis-navigation .vis-button.vis-zoomExtends::before { content: '⤧' !important; } /* Fit to screen symbol */
-        .vis-navigation .vis-button.vis-up::before { content: '↑' !important; }
-        .vis-navigation .vis-button.vis-down::before { content: '↓' !important; }
-        .vis-navigation .vis-button.vis-left::before { content: '←' !important; }
-        .vis-navigation .vis-button.vis-right::before { content: '→' !important; }
+        .vis-navigation .vis-button.vis-zoomOut::before { content: '−' !important; }
+        .vis-navigation .vis-button.vis-zoomExtends::before { content: '⤧' !important; }
+
+        /* New Workload UI styles */
+        .workload-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            border-radius: var(--border-radius) var(--border-radius) 0 0;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .workload-filters { display: flex; gap: 0.5rem; }
+        .workload-filter-btn {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+        }
+        .workload-filter-btn:hover { background-color: var(--border-color); color: var(--text-primary); }
+        .workload-filter-btn.active {
+            background-color: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        .filter-count {
+            background-color: rgba(0,0,0,0.1);
+            color: inherit;
+            font-size: 0.8em;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        #secondary-filter-container { display: flex; gap: 1rem; flex-wrap: wrap;}
+        #secondary-filter-container input, #secondary-filter-container select { min-width: 200px; }
+
+        .workload-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .workload-list-item:hover { background-color: var(--bg-color); }
+        .workload-list-item.selected {
+            background-color: var(--primary-color-light);
+            border-left: 4px solid var(--primary-color);
+            padding-left: calc(1.5rem - 4px);
+        }
+        .workload-list-item:last-child { border-bottom: none; }
+        
+        .item-main .item-name { font-weight: 600; color: var(--text-primary); margin-bottom: 0.25rem; }
+        .item-main .item-namespace { font-size: 0.85rem; color: var(--text-secondary); }
+        .item-status { display: flex; gap: 0.75rem; align-items: center; }
+        .item-status .status-badge { font-size: 0.8rem; padding: 0.3rem 0.75rem; font-weight: 500; }
+        .status-badge.status-warning { background-color: #fff3cd; color: #664d03;}
+
+        /* Modal Styles */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-overlay.visible { display: flex; }
+        .modal-content { background: var(--surface-color); padding: 1.5rem; border-radius: var(--border-radius); box-shadow: 0 10px 30px rgba(0,0,0,0.2); width: 90%; max-width: 800px; max-height: 90vh; display: flex; flex-direction: column; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1rem; }
+        .modal-header h3 { margin: 0; color: var(--text-primary); }
+        .modal-close { background: none; border: none; cursor: pointer; color: var(--text-secondary); }
+        .modal-body { overflow-y: auto; }
+        .code-block { background-color: var(--bg-color); border: 1px solid var(--border-color); padding: 1rem; border-radius: 6px; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; }
     </style>
 {% endblock %}
 
@@ -76,7 +130,6 @@
             <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="zap"></i>Analysis & Insights</button>
         </div>
 
-        <!-- Content for each tab is now included from a separate partial file -->
         {% include '_cluster_overview.html' %}
         {% include '_cluster_compute.html' %}
         {% include '_cluster_addons.html' %}
@@ -84,28 +137,35 @@
         {% include '_cluster_observability.html' %}
         {% include '_cluster_insights.html' %}
     </div>
+
+    <div id="resource-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Resource Details</h3>
+                <button id="modal-close-btn" class="modal-close"><i data-feather="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <pre id="modal-body-content" class="code-block"></pre>
+            </div>
+        </div>
+    </div>
     {% endif %}
 {% endblock %}
 
 {% block scripts_extra %}
 <script>
     // --- START: GLOBAL SCOPE ---
-    const CLUSTER_INFO = {
-        accountId: '{{ cluster.account_id }}',
-        region: '{{ cluster.region }}',
-        name: '{{ cluster.name }}'
-    };
+    const CLUSTER_INFO = { accountId: '{{ cluster.account_id }}', region: '{{ cluster.region }}', name: '{{ cluster.name }}' };
     const workloadsData = {{ cluster.workloads | tojson | safe if cluster.workloads else 'null' }};
     
     // --- Page State Variables ---
-    let workloadGraphRendered = false;
+    let workloadsTabInitialized = false;
     let visNetwork, visNodes, visEdges;
     let activeTab = 'overview';
     let metricCharts = {};
     let metricsLoaded = false;
-    let originalNodeStyles = {};
+    let activeWorkloadFilter = 'pod';
 
-    // --- Tab Switching Logic ---
     function openTab(evt, tabName) {
         activeTab = tabName;
         document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
@@ -113,49 +173,208 @@
         document.getElementById(tabName).style.display = 'block';
         evt.currentTarget.classList.add('active');
 
-        if (tabName === 'workloads' && !workloadGraphRendered) {
-            renderWorkloadGraph();
-            setupPodFilters();
-            workloadGraphRendered = true;
+        if (tabName === 'workloads' && !workloadsTabInitialized) {
+            initializeWorkloadsTab();
+            workloadsTabInitialized = true;
         } else if (tabName === 'observability' && !metricsLoaded) {
             loadMetrics();
         }
         feather.replace();
     }
     
-    // --- Workload Graph ---
+    // --- Workload UI Logic ---
+    function initializeWorkloadsTab() {
+        if (!workloadsData || workloadsData.error) {
+            document.getElementById('workload-list-container').innerHTML = '<div class="no-data-message"><p>Could not load workload data.</p></div>';
+            return;
+        }
+        
+        const namespaces = [...new Set(workloadsData.pods.map(p => p.metadata.namespace))];
+        document.getElementById('ns-count').textContent = namespaces.length;
+        document.getElementById('dep-count').textContent = workloadsData.deployments.length;
+        document.getElementById('pod-count').textContent = workloadsData.pods.length;
+        
+        document.querySelectorAll('.workload-filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.workload-filter-btn').forEach(b => b.classList.remove('active'));
+                e.currentTarget.classList.add('active');
+                activeWorkloadFilter = e.currentTarget.dataset.type;
+                renderResourceList();
+                resetHighlightAndPanel();
+            });
+        });
+
+        const modal = document.getElementById('resource-modal');
+        document.getElementById('modal-close-btn').addEventListener('click', () => modal.classList.remove('visible'));
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
+
+        renderResourceList();
+        renderWorkloadGraph();
+    }
+
+    function renderResourceList() {
+        const listContainer = document.getElementById('workload-list-container');
+        let listHTML = '';
+        let secondaryFilterHTML = '';
+        const namespaces = [...new Set(workloadsData.pods.map(p => p.metadata.namespace))].sort();
+        const nsOptions = namespaces.map(ns => `<option value="${ns}">${ns}</option>`).join('');
+
+        switch(activeWorkloadFilter) {
+            case 'namespace':
+                listHTML = namespaces.map(ns => `
+                    <div class="workload-list-item" data-kind="Namespace" data-name="${ns.toLowerCase()}" data-namespace="${ns}">
+                        <div class="item-main"><div class="item-name">${ns}</div></div>
+                    </div>`).join('');
+                secondaryFilterHTML = `<input type="text" id="workload-text-filter" class="form-input" placeholder="Filter by name...">`;
+                break;
+            
+            case 'deployment':
+                listHTML = workloadsData.deployments.map(dep => `
+                    <div class="workload-list-item" data-kind="Deployment" data-uid="${dep.metadata.uid}" data-name="${dep.metadata.name.toLowerCase()}" data-namespace="${dep.metadata.namespace}">
+                        <div class="item-main"><div class="item-name">${dep.metadata.name}</div><div class="item-namespace">${dep.metadata.namespace}</div></div>
+                        <div class="item-status"><span class="status-badge status-${dep.status && dep.status.readyReplicas === dep.spec.replicas ? 'active' : 'updating'}">${(dep.status.readyReplicas || 0)}/${dep.spec.replicas} Ready</span></div>
+                    </div>`).join('');
+                secondaryFilterHTML = `
+                    <input type="text" id="workload-text-filter" class="form-input" placeholder="Filter by name...">
+                    <select id="workload-namespace-filter" class="form-select"><option value="all">All Namespaces</option>${nsOptions}</select>`;
+                break;
+            
+            case 'pod':
+                listHTML = workloadsData.pods.map(pod => `
+                    <div class="workload-list-item" data-kind="Pod" data-uid="${pod.metadata.uid}" data-name="${pod.metadata.name.toLowerCase()}" data-status="${pod.status.phase}" data-namespace="${pod.metadata.namespace}">
+                        <div class="item-main"><div class="item-name">${pod.metadata.name}</div><div class="item-namespace">${pod.metadata.namespace}</div></div>
+                        <div class="item-status"><span class="status-badge status-${pod.status.phase.toLowerCase()}">${pod.status.phase}</span><span class="status-badge status-warning">Restarts: ${pod.restarts}</span></div>
+                    </div>`).join('');
+                secondaryFilterHTML = `
+                    <input type="text" id="workload-text-filter" class="form-input" placeholder="Filter by name...">
+                    <select id="workload-namespace-filter" class="form-select"><option value="all">All Namespaces</option>${nsOptions}</select>
+                    <select id="workload-status-filter" class="form-select"><option value="all">All Statuses</option><option value="Running">Running</option><option value="Pending">Pending</option><option value="Succeeded">Succeeded</option><option value="Failed">Failed</option><option value="Unknown">Unknown</option></select>`;
+                break;
+        }
+        
+        listContainer.innerHTML = listHTML || '<div class="no-data-message"><p>No resources found.</p></div>';
+        document.getElementById('secondary-filter-container').innerHTML = secondaryFilterHTML;
+        addListItemListeners();
+        addSecondaryFilterListeners();
+    }
+
+    function addListItemListeners() {
+        document.querySelectorAll('.workload-list-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.workload-list-item').forEach(i => i.classList.remove('selected'));
+                item.classList.add('selected');
+
+                const kind = item.dataset.kind;
+                const uid = item.dataset.uid;
+                let resourceData;
+
+                if (uid && visNodes.get(uid)) {
+                    highlightNodeAndConnections(uid);
+                    visNetwork.focus(uid, { scale: 1.5, animation: true });
+                } else {
+                    resetHighlightAndPanel();
+                }
+
+                switch(kind) {
+                    case 'Deployment': resourceData = workloadsData.deployments.find(d => d.metadata.uid === uid); break;
+                    case 'Pod': resourceData = workloadsData.pods.find(p => p.metadata.uid === uid); break;
+                    case 'Namespace':
+                         const nsName = item.querySelector('.item-name').textContent;
+                         resourceData = { name: nsName, summary: {
+                                podCount: workloadsData.pods.filter(p => p.metadata.namespace === nsName).length,
+                                deploymentCount: workloadsData.deployments.filter(d => d.metadata.namespace === nsName).length,
+                                serviceCount: workloadsData.services.filter(s => s.metadata.namespace === nsName).length
+                         }};
+                         break;
+                }
+                
+                if (resourceData) {
+                    const modal = document.getElementById('resource-modal');
+                    document.getElementById('modal-title').textContent = `${kind}: ${resourceData.metadata ? resourceData.metadata.name : resourceData.name}`;
+                    document.getElementById('modal-body-content').textContent = JSON.stringify(resourceData, null, 2);
+                    modal.classList.add('visible');
+                    feather.replace();
+                }
+            });
+        });
+    }
+
+    function addSecondaryFilterListeners() {
+        const filters = [
+            document.getElementById('workload-text-filter'),
+            document.getElementById('workload-status-filter'),
+            document.getElementById('workload-namespace-filter')
+        ].filter(el => el);
+
+        const applyFilters = () => {
+            const textValue = document.getElementById('workload-text-filter')?.value.toLowerCase() || '';
+            const statusValue = document.getElementById('workload-status-filter')?.value || 'all';
+            const namespaceValue = document.getElementById('workload-namespace-filter')?.value || 'all';
+            
+            const visibleUids = new Set();
+            const visibleNamespaces = new Set();
+
+            document.querySelectorAll('#workload-list-container .workload-list-item').forEach(item => {
+                const nameMatch = textValue ? item.dataset.name.includes(textValue) : true;
+                const statusMatch = statusValue !== 'all' ? item.dataset.status === statusValue : true;
+                const namespaceMatch = namespaceValue !== 'all' ? item.dataset.namespace === namespaceValue : true;
+                
+                const isVisible = nameMatch && statusMatch && namespaceMatch;
+                item.style.display = isVisible ? 'flex' : 'none';
+                if (isVisible) {
+                    if (item.dataset.uid) visibleUids.add(item.dataset.uid);
+                    if (item.dataset.kind === 'Namespace') visibleNamespaces.add(item.dataset.namespace);
+                }
+            });
+            
+            filterMap(visibleUids, visibleNamespaces);
+        };
+        filters.forEach(el => el.addEventListener('input', applyFilters));
+    }
+
+    function filterMap(visibleUids, visibleNamespaces) {
+        if (!visNodes) return;
+        const nodeUpdates = [];
+        visNodes.getIds().forEach(nodeId => {
+            const mapNode = workloadsData.map_nodes.find(n => n.id === nodeId);
+            if (!mapNode) return;
+            
+            const isInfraNode = ['ingress', 'svc', 'node'].includes(mapNode.group);
+            let isVisible = false;
+
+            if (isInfraNode) {
+                isVisible = true; // Always show infra nodes
+            } else if (activeWorkloadFilter === 'namespace') {
+                isVisible = visibleNamespaces.has(mapNode.details.namespace);
+            } else {
+                isVisible = visibleUids.has(nodeId);
+            }
+            nodeUpdates.push({ id: nodeId, hidden: !isVisible });
+        });
+        visNodes.update(nodeUpdates);
+    }
+
+    // --- Workload Graph Functions ---
     function renderWorkloadGraph() {
         const container = document.getElementById('workload-graph');
         if (!workloadsData || workloadsData.error || !workloadsData.map_nodes) {
-            container.innerHTML = '<p class="text-muted" style="text-align:center; padding: 50px;">Could not render workload graph. Data is unavailable.</p>';
+            container.innerHTML = '<div class="no-data-message"><p>Could not render workload graph.</p></div>';
             return;
         }
-        const nodes = workloadsData.map_nodes.map(n => {
-            originalNodeStyles[n.id] = { group: n.group };
-            return n;
-        });
-        visNodes = new vis.DataSet(nodes);
+        visNodes = new vis.DataSet(workloadsData.map_nodes);
         visEdges = new vis.DataSet(workloadsData.map_edges);
         const data = { nodes: visNodes, edges: visEdges };
         const options = {
-            nodes: { shape: 'dot', size: 18, font: { size: 14, color: 'var(--text-secondary)' }, borderWidth: 2, },
-            edges: { width: 1.5, color: { color: 'var(--border-color)', highlight: 'var(--primary-color)', hover: 'var(--primary-color-dark)' }, smooth: { type: 'cubicBezier' }, arrows: { to: { enabled: true, scaleFactor: 0.7 } } },
+            nodes: { shape: 'dot', size: 18, font: { size: 14, color: 'var(--text-secondary)' }, borderWidth: 2 },
+            edges: { width: 1.5, color: { color: 'var(--border-color)', highlight: 'var(--primary-color)' }, smooth: { type: 'cubicBezier' }, arrows: { to: { enabled: true, scaleFactor: 0.7 } } },
             groups: {
                 ingress: { color: { background: '#FD7E14', border: '#ffc799' }, shape: 'diamond' },
                 svc: { color: { background: '#0D6EFD', border: '#a3c7fe' }, shape: 'square' },
                 pod: { color: { background: '#198754', border: '#b3d8c6' }, shape: 'dot' },
-                node: { color: { background: '#6C757D', border: '#cfd2d4' }, shape: 'triangle', icon: { face: 'Feather', code: '\uf1b2', size: 50, color: 'white' } },
+                node: { color: { background: '#6C757D', border: '#cfd2d4' }, shape: 'triangle' },
             },
-            physics: {
-                solver: 'forceAtlas2Based',
-                forceAtlas2Based: { gravitationalConstant: -45, centralGravity: 0.01, springLength: 280, springConstant: 0.15, avoidOverlap: 0.8 },
-                maxVelocity: 140, minVelocity: 0.75,
-                stabilization: { iterations: 200, fit: true },
-            },
-            interaction: {
-                dragNodes: true, dragView: true, hover: true, zoomView: true, tooltipDelay: 200, hideEdgesOnDrag: true,
-                navigationButtons: true, keyboard: { enabled: true, speed: { x: 10, y: 10, zoom: 0.02 }, bindToWindow: true }
-            },
+            physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -50, springLength: 250, avoidOverlap: 0.7 } },
+            interaction: { dragNodes: true, dragView: true, hover: true, zoomView: true, tooltipDelay: 200, hideEdgesOnDrag: true, navigationButtons: true },
             layout: { improvedLayout: true }
         };
         visNetwork = new vis.Network(container, data, options);
@@ -163,28 +382,29 @@
     }
     
     function setupGraphInteractions() {
-        const infoPanel = document.getElementById('graph-info-panel');
         const searchInput = document.getElementById('graph-search');
         visNetwork.on('click', (properties) => {
+            resetHighlightAndPanel();
             if (properties.nodes.length > 0) {
                 const nodeId = properties.nodes[0];
                 const nodeData = visNodes.get(nodeId);
                 populateInfoPanel(nodeData.details);
                 highlightNodeAndConnections(nodeId);
-            } else {
-                resetHighlightAndPanel();
+                
+                const listItem = document.querySelector(`.workload-list-item[data-uid="${nodeId}"]`);
+                if (listItem) {
+                    listItem.classList.add('selected');
+                    listItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
             }
         });
         document.getElementById('graph-info-close').addEventListener('click', resetHighlightAndPanel);
         searchInput.addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
-            if (!searchTerm) {
-                resetHighlightAndPanel();
-                return;
-            }
+            if (!searchTerm) { resetHighlightAndPanel(); return; }
             const foundNode = workloadsData.map_nodes.find(n => n.label.toLowerCase().includes(searchTerm));
             if (foundNode) {
-                visNetwork.focus(foundNode.id, { scale: 1.2, animation: true });
+                visNetwork.focus(foundNode.id, { scale: 1.5, animation: true });
                 populateInfoPanel(foundNode.details);
                 highlightNodeAndConnections(foundNode.id);
             }
@@ -193,82 +413,37 @@
 
     function populateInfoPanel(details) {
         const panel = document.getElementById('graph-info-panel');
-        const titleEl = document.getElementById('info-panel-title');
-        const bodyEl = document.getElementById('info-panel-body');
-        titleEl.textContent = `${details.kind}: ${details.name}`;
+        document.getElementById('info-panel-title').textContent = `${details.kind}: ${details.name}`;
         let html = '';
         for (const [key, value] of Object.entries(details)) {
             if (key === 'kind' || key === 'name') continue;
-            let displayValue;
-            if (Array.isArray(value)) {
-                displayValue = value.length > 0 ? `<ul>${value.map(item => `<li><span class="code">${JSON.stringify(item)}</span></li>`).join('')}</ul>` : 'None';
-            } else if (typeof value === 'object' && value !== null) {
-                displayValue = `<pre class="code" style="white-space: pre-wrap; max-height: 200px; overflow-y: auto;">${JSON.stringify(value, null, 2)}</pre>`;
-            } else {
-                displayValue = `<span class="code">${value || 'N/A'}</span>`;
-            }
-            const displayKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-            html += `<strong>${displayKey}</strong><div>${displayValue}</div>`;
+            let displayValue = typeof value === 'object' && value !== null ? `<pre class="code">${JSON.stringify(value, null, 2)}</pre>` : `<span class="code">${value || 'N/A'}</span>`;
+            html += `<strong>${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</strong><div>${displayValue}</div>`;
         }
-        bodyEl.innerHTML = html;
+        document.getElementById('info-panel-body').innerHTML = html;
         panel.classList.add('visible');
     }
 
     function highlightNodeAndConnections(nodeId) {
-        const allNodes = visNodes.get({ returnType: 'Object' });
+        resetHighlightAndPanel();
         const connectedNodes = visNetwork.getConnectedNodes(nodeId);
         connectedNodes.push(nodeId);
         const nodesToUpdate = [];
-        for (const id in allNodes) {
-            const node = allNodes[id];
+        visNodes.getIds().forEach(id => {
             if (!connectedNodes.includes(id)) {
-                node.color = { border: 'rgba(200, 200, 200, 0.2)', background: 'rgba(240, 240, 240, 0.2)' };
-                node.font = { color: 'rgba(200, 200, 200, 0.5)' };
-                node.label = undefined;
-            } else {
-                 node.color = null;
-                 node.font = { color: 'var(--text-secondary)' };
-                 node.label = workloadsData.map_nodes.find(n => n.id === id).label;
+                nodesToUpdate.push({ id, color: { border: 'rgba(200,200,200,0.2)', background: 'rgba(240,240,240,0.2)' }, font: { color: 'rgba(200,200,200,0.5)' } });
             }
-            nodesToUpdate.push(node);
-        }
+        });
         visNodes.update(nodesToUpdate);
     }
     
     function resetHighlightAndPanel() {
+        document.querySelectorAll('.workload-list-item').forEach(i => i.classList.remove('selected'));
         document.getElementById('graph-info-panel').classList.remove('visible');
-        const nodesToUpdate = visNodes.get().map(node => ({ id: node.id, color: null, font: { color: 'var(--text-secondary)' }, label: workloadsData.map_nodes.find(n => n.id === node.id).label }));
-        visNodes.update(nodesToUpdate);
-        document.getElementById('graph-search').value = '';
-        visNetwork.fit();
+        visNodes.update(visNodes.getIds().map(id => ({ id, color: null, font: { color: 'var(--text-secondary)' } })));
     }
     
-    // --- Pod Filtering ---
-    function setupPodFilters() {
-        if (!workloadsData || !workloadsData.pods) return;
-        const namespaceSelect = document.getElementById('pod-namespace-filter');
-        const uniqueNamespaces = [...new Set(workloadsData.pods.map(p => p.metadata.namespace))].sort();
-        namespaceSelect.innerHTML = '<option value="all">All Namespaces</option>' + uniqueNamespaces.map(ns => `<option value="${ns}">${ns}</option>`).join('');
-        const nameFilter = document.getElementById('pod-name-filter');
-        const statusFilter = document.getElementById('pod-status-filter');
-        const applyFilters = () => {
-            const name = nameFilter.value.toLowerCase();
-            const namespace = namespaceSelect.value;
-            const status = statusFilter.value;
-            const podRows = document.querySelectorAll('#all-pods-table tbody tr');
-            podRows.forEach(row => {
-                const rowName = row.dataset.name, rowNamespace = row.dataset.namespace, rowStatus = row.dataset.status;
-                const nameMatch = rowName.includes(name);
-                const namespaceMatch = (namespace === 'all' || rowNamespace === namespace);
-                const statusMatch = (status === 'all' || rowStatus === status);
-                row.style.display = (nameMatch && namespaceMatch && statusMatch) ? '' : 'none';
-            });
-        };
-        [nameFilter, namespaceSelect, statusFilter].forEach(el => el.addEventListener('change', applyFilters));
-        nameFilter.addEventListener('input', applyFilters);
-    }
-
-    // --- Metrics and Charting Functions ---
+    // --- Metrics and Charting Functions (Full Version) ---
     function getChartBaseOptions(y1Title = '', y2Title = '') {
         const computedStyle = getComputedStyle(document.documentElement);
         const textSecondary = computedStyle.getPropertyValue('--text-secondary').trim();
@@ -319,7 +494,7 @@
                 backgroundColor: 'transparent',
                 yAxisID: isY2 ? 'y2' : 'y1',
                 fill: false,
-                type: ds.type || 'line', // Allow bar type
+                type: ds.type || 'line',
                 borderWidth: ds.type === 'bar' ? 0 : 2
             }
         });
@@ -358,7 +533,7 @@
         if (noDataMessage) noDataMessage.remove();
         canvas.style.display = 'block';
 
-        const hasData = renderFn(); // Let the specific render function decide if it has data
+        const hasData = renderFn(); 
         if (!hasData) {
             canvas.style.display = 'none';
             const messageDiv = document.createElement('div');
@@ -370,9 +545,8 @@
 
     function processAndRenderCharts(metrics) {
         const hasData = (key) => metrics[key] && metrics[key].values && metrics[key].values.length > 0;
-        const colors = { avg: '#0d6efd', max: '#fd7e14' }; // avg: blue, max: orange
-
-        // --- Cluster Health ---
+        const colors = { avg: '#0d6efd', max: '#fd7e14' };
+        
         renderOrShowNoData('nodeStatusChart', () => {
             const datasets = [];
             if (hasData('cluster_node_count')) {
@@ -393,8 +567,8 @@
             return datasets.length > 0;
         });
         
-        // --- Nodes Status & Capacity ---
         renderOrShowNoData('numReadyNodesChart', () => { const ds = hasData('node_status_condition_ready') ? [ {...metrics.node_status_condition_ready, label: 'Ready Nodes', color: '#198754'} ] : []; if(ds.length > 0) renderChart('numReadyNodesChart', ds, false, 'Count'); return ds.length > 0; });
+        
         renderOrShowNoData('nodesErrorConditionChart', () => {
             const ds = [];
             if (hasData('node_status_condition_out_of_disk')) ds.push({...metrics.node_status_condition_out_of_disk, label: 'Out of Disk', color: '#fd7e14'});
@@ -402,10 +576,9 @@
             if (hasData('node_status_condition_pid_pressure')) ds.push({...metrics.node_status_condition_pid_pressure, label: 'PID Pressure', color: '#6f42c1'});
             if(ds.length > 0) renderChart('nodesErrorConditionChart', ds, true, 'Count'); return ds.length > 0;
         });
+        
         renderOrShowNoData('runningPodsPerNodeChart', () => { const ds = hasData('node_number_of_running_pods') ? [ {...metrics.node_number_of_running_pods, label: 'Avg Running Pods', color: '#0d6efd'} ] : []; if(ds.length > 0) renderChart('runningPodsPerNodeChart', ds, false, 'Count'); return ds.length > 0; });
-        renderOrShowNoData('allocatablePodsUtilizationChart', () => { const ds = hasData('node_allocatable_pods_utilization') ? [ {...metrics.node_allocatable_pods_utilization, label: 'avg: node_allocatable_pods_utilization', color: '#0dcaf0'} ] : []; if(ds.length > 0) renderChart('allocatablePodsUtilizationChart', ds, false, 'Count'); return ds.length > 0; });
-
-        // --- Node Performance ---
+        
         renderOrShowNoData('nodeCpuChart', () => {
             const datasets = [];
             if (hasData('node_cpu_utilization_avg')) datasets.push({...metrics.node_cpu_utilization_avg, label: 'avg: node_cpu_utilization', color: colors.avg});
@@ -413,6 +586,7 @@
             if (datasets.length > 0) renderChart('nodeCpuChart', datasets, false, '%');
             return datasets.length > 0;
         });
+
         renderOrShowNoData('nodeMemoryChart', () => {
             const datasets = [];
             if (hasData('node_memory_utilization_avg')) datasets.push({...metrics.node_memory_utilization_avg, label: 'avg: node_memory_utilization', color: colors.avg});
@@ -420,7 +594,9 @@
             if (datasets.length > 0) renderChart('nodeMemoryChart', datasets, false, '%');
             return datasets.length > 0;
         });
+
         renderOrShowNoData('nodeFsChart', () => { const ds = hasData('node_filesystem_utilization') ? [{...metrics.node_filesystem_utilization, label: 'Filesystem %', color: '#198754'}] : []; if (ds.length > 0) renderChart('nodeFsChart', ds, false, '%'); return ds.length > 0; });
+        
         renderOrShowNoData('nodeNetworkChart', () => {
             const datasets = [];
             if (hasData('node_network_total_bytes_max')) datasets.push({...metrics.node_network_total_bytes_max, label: 'max: node_network_total_bytes', color: '#fd7e14', bgColor: '#fd7e1440', type: 'bar'});
@@ -429,7 +605,6 @@
             return datasets.length > 0;
         });
         
-        // --- Pod Performance and Limits ---
         renderOrShowNoData('podCpuChart', () => {
             const datasets = [];
             if (hasData('pod_cpu_utilization_avg')) datasets.push({...metrics.pod_cpu_utilization_avg, label: 'avg: pod_cpu_utilization', color: colors.avg});
@@ -437,6 +612,7 @@
             if (datasets.length > 0) renderChart('podCpuChart', datasets, false, '%');
             return datasets.length > 0;
         });
+        
         renderOrShowNoData('podMemoryChart', () => {
             const datasets = [];
             if (hasData('pod_memory_utilization_avg')) datasets.push({...metrics.pod_memory_utilization_avg, label: 'avg: pod_memory_utilization', color: colors.avg});
@@ -444,26 +620,14 @@
             if (datasets.length > 0) renderChart('podMemoryChart', datasets, false, '%');
             return datasets.length > 0;
         });
-        renderOrShowNoData('podCpuOverPodLimitChart', () => {
-            const datasets = [];
-            if (hasData('pod_cpu_utilization_over_pod_limit_avg')) datasets.push({...metrics.pod_cpu_utilization_over_pod_limit_avg, label: 'avg: pod_cpu_utilization_over_pod_limit', color: colors.avg});
-            if (hasData('pod_cpu_utilization_over_pod_limit_max')) datasets.push({...metrics.pod_cpu_utilization_over_pod_limit_max, label: 'max: pod_cpu_utilization_over_pod_limit', color: colors.max});
-            if (datasets.length > 0) renderChart('podCpuOverPodLimitChart', datasets, false, '%');
-            return datasets.length > 0;
-        });
-        renderOrShowNoData('podMemoryOverPodLimitChart', () => {
-            const datasets = [];
-            if (hasData('pod_memory_utilization_over_pod_limit_avg')) datasets.push({...metrics.pod_memory_utilization_over_pod_limit_avg, label: 'avg: pod_memory_utilization_over_pod_limit', color: colors.avg});
-            if (hasData('pod_memory_utilization_over_pod_limit_max')) datasets.push({...metrics.pod_memory_utilization_over_pod_limit_max, label: 'max: pod_memory_utilization_over_pod_limit', color: colors.max});
-            if (datasets.length > 0) renderChart('podMemoryOverPodLimitChart', datasets, false, '%');
-            return datasets.length > 0;
-        });
+        
         renderOrShowNoData('podNetworkChart', () => {
             const ds = [];
             if (hasData('pod_network_rx_bytes')) ds.push({...metrics.pod_network_rx_bytes, label: 'Received', color: '#0dcaf0'});
             if (hasData('pod_network_tx_bytes')) ds.push({...metrics.pod_network_tx_bytes, label: 'Transmitted', color: '#fd7e14'});
             if(ds.length>0) renderChart('podNetworkChart', ds, false, 'Bytes/s'); return ds.length > 0;
         });
+        
         renderOrShowNoData('podStatusChart', () => {
             const ds = [];
             if (hasData('pod_status_running')) ds.push({...metrics.pod_status_running, label: 'Running', color: '#198754'});
@@ -474,30 +638,11 @@
             if(ds.length > 0) renderChart('podStatusChart', ds, true, 'Count'); return ds.length > 0;
         });
         
-        // --- Control Plane ---
         renderOrShowNoData('apiServerRequestsChart', () => {
             const ds = [];
             if (hasData('apiserver_request_total')) ds.push({...metrics.apiserver_request_total, label: 'request_total', yAxisID: 'y1', color: '#0d6efd'});
             if (hasData('apiserver_request_duration_seconds')) ds.push({...metrics.apiserver_request_duration_seconds, label: 'request_duration_seconds', yAxisID: 'y2', color: '#fd7e14'});
             if(ds.length > 0) renderDualAxisChart('apiServerRequestsChart', ds, 'Count', 'Seconds'); return ds.length > 0;
-        });
-        renderOrShowNoData('restClientRequestsChart', () => {
-            const ds = [];
-            if (hasData('rest_client_requests_total')) ds.push({...metrics.rest_client_requests_total, label: 'requests_total', yAxisID: 'y1', color: '#0d6efd'});
-            if (hasData('rest_client_request_duration_seconds')) ds.push({...metrics.rest_client_request_duration_seconds, label: 'request_duration_seconds', yAxisID: 'y2', color: '#fd7e14'});
-            if(ds.length > 0) renderDualAxisChart('restClientRequestsChart', ds, 'Count', 'Seconds'); return ds.length > 0;
-        });
-        renderOrShowNoData('admissionEtcdDurationChart', () => {
-            const ds = [];
-            if (hasData('apiserver_admission_controller_admission_duration_seconds')) ds.push({...metrics.apiserver_admission_controller_admission_duration_seconds, label: 'admission_controller_duration', color: '#0d6efd'});
-            if (hasData('etcd_request_duration_seconds')) ds.push({...metrics.etcd_request_duration_seconds, label: 'etcd_request_duration', color: '#fd7e14'});
-            if(ds.length > 0) renderChart('admissionEtcdDurationChart', ds, false, 'Seconds'); return ds.length > 0;
-        });
-        renderOrShowNoData('apiServerStorageChart', () => {
-            const ds = [];
-            if (hasData('apiserver_storage_objects')) ds.push({...metrics.apiserver_storage_objects, label: 'storage_objects', yAxisID: 'y1', color: '#0d6efd'});
-            if (hasData('apiserver_storage_size_bytes')) ds.push({...metrics.apiserver_storage_size_bytes, label: 'storage_size_bytes', yAxisID: 'y2', color: '#fd7e14'});
-            if(ds.length > 0) renderDualAxisChart('apiServerStorageChart', ds, 'Count', 'Bytes'); return ds.length > 0;
         });
     }
     
@@ -514,9 +659,6 @@
             const response = await fetch(url);
             const metricsData = await response.json();
             if (!response.ok) throw new Error(metricsData.error || 'Failed to fetch metrics');
-            if (Object.keys(metricsData).length === 0 || Object.values(metricsData).every(d => !d || d.values.length === 0)) {
-                throw new Error("No metrics data returned. Ensure Container Insights and Control Plane metrics are enabled for this cluster and have had time to collect data.");
-            }
             processAndRenderCharts(metricsData);
             metricsLoaded = true;
             grid.style.display = 'block';
@@ -558,29 +700,6 @@
                 }
             });
         }
-
-        document.querySelectorAll('.upgrade-btn').forEach(button => {
-            button.addEventListener('click', async (e) => {
-                const btn = e.currentTarget;
-                if (!confirm(`Are you sure you want to upgrade nodegroup "${btn.dataset.nodegroupName}"?`)) return;
-                btn.disabled = true;
-                btn.innerHTML = '<i data-feather="loader" class="spin"></i> Upgrading...';
-                feather.replace();
-                const response = await fetch('/api/upgrade-nodegroup', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ accountId: CLUSTER_INFO.accountId, region: CLUSTER_INFO.region, clusterName: CLUSTER_INFO.name, nodegroupName: btn.dataset.nodegroupName, }),
-                });
-                const result = await response.json();
-                if (response.ok) {
-                    alert(`Upgrade initiated successfully!`);
-                    window.location.reload();
-                } else {
-                    alert(`Upgrade failed: ${result.error}`);
-                    btn.disabled = false;
-                }
-            });
-        });
     });
 </script>
 {% endblock %}

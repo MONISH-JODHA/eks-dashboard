@@ -54,7 +54,6 @@
 {% block scripts_extra %}
     <script>
         const allClusters = {{ clusters | tojson | safe if clusters else [] }};
-        const lastRefreshed = new Date("{{ request.state.now.isoformat() if request.state.now else '' }}");
         let charts = {};
 
         function renderChart(canvasId, type, data) {
@@ -89,9 +88,6 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            if (lastRefreshed.valueOf()) {
-                document.getElementById('last-refreshed-time').textContent = `Refreshed: ${lastRefreshed.toLocaleTimeString()}`;
-            }
             updateAllCharts(allClusters);
         });
     </script>

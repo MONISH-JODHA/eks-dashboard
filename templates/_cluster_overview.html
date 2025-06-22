@@ -16,6 +16,8 @@
                 <div><strong>K8s Version:</strong> <span>{{ cluster.version }}</span></div>
                 <div><strong>Platform Version:</strong> <span>{{ cluster.platformVersion }}</span></div>
                 <div><strong>Created At:</strong> <span>{{ cluster.createdAt.strftime('%Y-%m-%d %H:%M Z') if cluster.createdAt else 'N/A' }}</span></div>
+                <!-- MODIFICATION: Added Last Refreshed Time -->
+                <div><strong>Last Refreshed:</strong> <span id="lastRefreshedTime">{{ cluster.refreshed_at.strftime('%Y-%m-%d %H:%M:%S Z') if cluster.refreshed_at else 'N/A' }}</span></div>
                 <div><strong>OIDC Provider:</strong> <span class="code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
             </div>
         </div>

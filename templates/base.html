@@ -86,6 +86,14 @@
                 });
             }
 
+            // --- Last Refreshed Time ---
+            const lastRefreshedTime = new Date("{{ request.state.now.isoformat() if request.state.now else '' }}");
+            const lastRefreshedSpan = document.getElementById('last-refreshed-time');
+            if (lastRefreshedSpan && lastRefreshedTime.valueOf()) {
+                lastRefreshedSpan.textContent = `Data as of: ${lastRefreshedTime.toLocaleTimeString()}`;
+                lastRefreshedSpan.title = `Data loaded at ${lastRefreshedTime.toISOString()}`;
+            }
+
             // --- Sidebar Active State ---
             const currentPath = window.location.pathname;
             const navLinks = document.querySelectorAll('.sidebar-nav .nav-item');
