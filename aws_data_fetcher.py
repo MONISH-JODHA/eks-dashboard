@@ -120,29 +120,85 @@ def fetch_karpenter_nodes_for_cluster(core_v1_api):
 def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca, region, role_arn=None):
     """Fetches detailed workload info using the kubernetes-python client for reliability."""
     logging.info(f"Fetching full Kubernetes object map for {cluster_name}...")
-    k8s_data = {"pods": [], "services": [], "ingresses": [], "nodes": [], "deployments": [], "map_nodes": [], "map_edges": [], "error": None}
+    k8s_data = {
+        "pods": [], "services": [], "ingresses": [], "nodes": [], "deployments": [],
+        "replica_sets": [], "daemon_sets": [], "stateful_sets": [], "jobs": [], "cron_jobs": [],
+        "hpas": [], "priority_classes": [], "config_maps": [], "secrets": [], "endpoints": [],
+        "persistent_volume_claims": [], "persistent_volumes": [], "storage_classes": [],
+        "csi_nodes": [], "csi_drivers": [],
+        "map_nodes": [], "map_edges": [], "error": None
+    }
 
     try:
         api_client = get_k8s_api_client(cluster_name, cluster_endpoint, cluster_ca, region, role_arn)
+        
+        # API Client instances
         core_v1 = client.CoreV1Api(api_client)
         apps_v1 = client.AppsV1Api(api_client)
         networking_v1 = client.NetworkingV1Api(api_client)
+        batch_v1 = client.BatchV1Api(api_client)
+        storage_v1 = client.StorageV1Api(api_client)
+        scheduling_v1 = client.SchedulingV1Api(api_client)
+        autoscaling_v1 = client.AutoscalingV1Api(api_client)
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            future_pods = executor.submit(core_v1.list_pod_for_all_namespaces, timeout_seconds=120)
-            future_svcs = executor.submit(core_v1.list_service_for_all_namespaces, timeout_seconds=60)
-            future_ings = executor.submit(networking_v1.list_ingress_for_all_namespaces, timeout_seconds=60)
-            future_nodes = executor.submit(core_v1.list_node, timeout_seconds=60)
-            future_deps = executor.submit(apps_v1.list_deployment_for_all_namespaces, timeout_seconds=60)
+        def safe_api_call(func, *args, **kwargs):
+            try: return func(*args, **kwargs).items
+            except ApiException as e:
+                if e.status == 404:
+                    logging.warning(f"API resource not found via {func.__name__}, returning empty list.")
+                    return []
+                raise
 
-            k8s_data["pods"] = [api_client.sanitize_for_serialization(p) for p in future_pods.result().items]
-            k8s_data["services"] = [api_client.sanitize_for_serialization(s) for s in future_svcs.result().items]
-            k8s_data["ingresses"] = [api_client.sanitize_for_serialization(i) for i in future_ings.result().items]
-            k8s_data["nodes"] = [api_client.sanitize_for_serialization(n) for n in future_nodes.result().items]
-            k8s_data["deployments"] = [api_client.sanitize_for_serialization(d) for d in future_deps.result().items]
-
-        map_nodes, map_edges = [], []
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_map = {
+                executor.submit(safe_api_call, core_v1.list_pod_for_all_namespaces, timeout_seconds=120): "pods",
+                executor.submit(safe_api_call, core_v1.list_service_for_all_namespaces, timeout_seconds=60): "services",
+                executor.submit(safe_api_call, networking_v1.list_ingress_for_all_namespaces, timeout_seconds=60): "ingresses",
+                executor.submit(safe_api_call, core_v1.list_node, timeout_seconds=60): "nodes",
+                executor.submit(safe_api_call, apps_v1.list_deployment_for_all_namespaces, timeout_seconds=60): "deployments",
+                executor.submit(safe_api_call, apps_v1.list_replica_set_for_all_namespaces, timeout_seconds=60): "replica_sets",
+                executor.submit(safe_api_call, apps_v1.list_daemon_set_for_all_namespaces, timeout_seconds=60): "daemon_sets",
+                executor.submit(safe_api_call, apps_v1.list_stateful_set_for_all_namespaces, timeout_seconds=60): "stateful_sets",
+                executor.submit(safe_api_call, batch_v1.list_job_for_all_namespaces, timeout_seconds=60): "jobs",
+                executor.submit(safe_api_call, batch_v1.list_cron_job_for_all_namespaces, timeout_seconds=60): "cron_jobs",
+                executor.submit(safe_api_call, autoscaling_v1.list_horizontal_pod_autoscaler_for_all_namespaces, timeout_seconds=60): "hpas",
+                executor.submit(safe_api_call, scheduling_v1.list_priority_class, timeout_seconds=60): "priority_classes",
+                executor.submit(safe_api_call, core_v1.list_config_map_for_all_namespaces, timeout_seconds=60): "config_maps",
+                executor.submit(safe_api_call, core_v1.list_secret_for_all_namespaces, timeout_seconds=60): "secrets",
+                executor.submit(safe_api_call, core_v1.list_endpoints_for_all_namespaces, timeout_seconds=60): "endpoints",
+                executor.submit(safe_api_call, core_v1.list_persistent_volume_claim_for_all_namespaces, timeout_seconds=60): "persistent_volume_claims",
+                executor.submit(safe_api_call, core_v1.list_persistent_volume, timeout_seconds=60): "persistent_volumes",
+                executor.submit(safe_api_call, storage_v1.list_storage_class, timeout_seconds=60): "storage_classes",
+                executor.submit(safe_api_call, storage_v1.list_csi_node, timeout_seconds=60): "csi_nodes",
+                executor.submit(safe_api_call, storage_v1.list_csi_driver, timeout_seconds=60): "csi_drivers",
+            }
+            for future in as_completed(future_map):
+                key = future_map[future]
+                try: k8s_data[key] = [api_client.sanitize_for_serialization(item) for item in future.result()]
+                except Exception as e: logging.error(f"Error processing future for {key}: {e}", exc_info=True)
+        
         now = datetime.now(timezone.utc)
+        for key in k8s_data:
+            if isinstance(k8s_data[key], list):
+                for item in k8s_data[key]:
+                    if item and isinstance(item, dict) and item.get('metadata', {}).get('creationTimestamp'):
+                        try:
+                            creation_time = datetime.fromisoformat(item['metadata']['creationTimestamp'].replace("Z", "+00:00"))
+                            age_delta = now - creation_time
+                            if age_delta.total_seconds() < 0: age_delta = timedelta(seconds=0)
+                            if age_delta.days > 0:
+                                item['age'] = f"{age_delta.days}d {age_delta.seconds // 3600}h"
+                            else:
+                                item['age'] = f"{age_delta.seconds // 3600}h {(age_delta.seconds % 3600) // 60}m"
+                        except (ValueError, TypeError):
+                            item['age'] = 'N/A'
+        
+        # --- MODIFICATION START: Re-enabled map building logic ---
+        map_nodes, map_edges = [], []
+        
+        # Process Pods for restarts count
+        for pod in k8s_data.get("pods", []):
+            pod['restarts'] = sum(cs.get('restartCount', 0) for cs in pod.get('status', {}).get('containerStatuses', []))
 
         # Process Ingresses
         for ing in k8s_data["ingresses"]:
@@ -162,10 +218,6 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
 
         # Process Pods
         for pod in k8s_data["pods"]:
-            creation_time = datetime.fromisoformat(pod['metadata']['creationTimestamp'].replace("Z", "+00:00"))
-            age_delta = now - creation_time
-            pod['age'] = str(age_delta).split('.')[0]
-            pod['restarts'] = sum(cs.get('restartCount', 0) for cs in pod.get('status', {}).get('containerStatuses', []))
             owner_ref = pod['metadata'].get('ownerReferences', [{}])[0]
             controlled_by = f"{owner_ref.get('kind', 'N/A')}/{owner_ref.get('name', 'N/A')}"
             details = {"kind": "Pod", "name": pod["metadata"]["name"], "namespace": pod["metadata"]["namespace"], "status": pod["status"]["phase"], "pod_ip": pod["status"].get("podIP", "N/A"), "node_name": pod["spec"].get("nodeName", "N/A"), "restarts": pod['restarts'], "age": pod['age'], "controlled_by": controlled_by, "created": pod['metadata']['creationTimestamp']}
@@ -189,6 +241,8 @@ def get_kubernetes_workloads_and_map(cluster_name, cluster_endpoint, cluster_ca,
             map_nodes.append({"id": n["metadata"]["uid"], "label": n["metadata"]["name"], "group": "node", "title": f"Node: {details['name']}<br>Type: {details['instance_type']}", "details": details})
 
         k8s_data["map_nodes"], k8s_data["map_edges"] = map_nodes, map_edges
+        # --- MODIFICATION END ---
+
 
     except ApiException as e:
         error_message = f"Kubernetes API Error: {e.reason} (Status: {e.status})"
@@ -212,22 +266,21 @@ def fetch_addons_for_cluster(eks_client, cluster_name):
                     addon_desc = eks_client.describe_addon(clusterName=cluster_name, addonName=addon_name).get('addon', {})
                     if addon_desc:
                         addon_desc['health_status'] = "HEALTHY" if not addon_desc.get('health', {}).get('issues') else "HAS_ISSUES"
-
-                        # --- MODIFICATION START ---
-                        # Correctly fetch EKS Pod Identity, preferring the role name as seen in AWS Console
+                        
+                        # Fix for EKS Pod Identity parsing
                         pod_identity_config = addon_desc.get('podIdentityConfiguration')
                         addon_desc['pod_identity_display'] = None
-                        if pod_identity_config and isinstance(pod_identity_config, list) and len(pod_identity_config) > 0:
-                            role_arn = pod_identity_config[0].get('roleArn')
-                            if role_arn:
-                                addon_desc['pod_identity_display'] = role_arn.split('/')[-1]
-                            else: # Fallback to service account if role ARN is missing for some reason
-                                addon_desc['pod_identity_display'] = pod_identity_config[0].get('serviceAccount')
+                        if pod_identity_config:
+                            # The API can return a single object or a list. Handle both.
+                            config_list = pod_identity_config if isinstance(pod_identity_config, list) else [pod_identity_config]
+                            if config_list:
+                                role_arn = config_list[0].get('roleArn')
+                                if role_arn:
+                                    addon_desc['pod_identity_display'] = role_arn.split('/')[-1]
+                                else:
+                                    addon_desc['pod_identity_display'] = config_list[0].get('serviceAccount')
 
-                        # Legacy IRSA
                         addon_desc['irsa_role_arn'] = addon_desc.get('serviceAccountRoleArn')
-                        # --- MODIFICATION END ---
-                        
                         addons_details.append(addon_desc)
                 except ClientError as e:
                     logging.error(f"Error describing addon {addon_name} in {cluster_name}: {e}")
@@ -242,8 +295,6 @@ def fetch_fargate_profiles_for_cluster(eks_client, cluster_name):
         for page in paginator.paginate(clusterName=cluster_name):
             for profile_name in page.get('fargateProfileNames', []):
                 try:
-                    # Describe to get status, though the screenshot just shows active
-                    # For now, just listing names is sufficient based on request
                     profiles.append({"name": profile_name, "status": "ACTIVE"})
                 except ClientError as e:
                     logging.warning(f"Could not describe fargate profile {profile_name}, assuming active: {e}")
@@ -277,7 +328,6 @@ def get_cluster_metrics(account_id, region, cluster_name, role_arn=None):
         return {"error": f"Failed to get session for account {account_id}."}
 
     cw_client = session.client('cloudwatch', region_name=region)
-    # UPDATED metric definitions to match user screenshots
     metric_definitions = {
         # Cluster Health
         "cluster_node_count": ('cluster_node_count', 'Average'), 
@@ -394,7 +444,6 @@ def _process_cluster_data(c_raw, with_details=False, detail_results=None):
         
         cluster_data["workloads"] = detail_results.get("workloads", {"error": "Workload data not fetched."})
         if not cluster_data["workloads"].get("error"):
-            # If workloads were fetched, we might have node info for Karpenter
             try:
                  api_client = get_k8s_api_client(c_raw["name"], c_raw["endpoint"], c_raw["certificateAuthority"]["data"], c_raw["region"], detail_results.get("role_arn"))
                  karpenter_nodes_raw = fetch_karpenter_nodes_for_cluster(client.CoreV1Api(api_client))
@@ -438,27 +487,6 @@ def get_live_eks_data(user_groups: list[str] | None, group_map_str: str):
     if not accounts_to_scan and group_to_account_list:
         return {"clusters": [], "quick_info": {}, "errors": ["User has no access to any configured AWS accounts."]}
 
-    errors, cluster_locations = [], []
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        list_futures = []
-        for account in accounts_to_scan:
-            session = get_session(account.get('role_arn'))
-            if not session:
-                errors.append(f"Failed to create session for account {account['id']}.")
-                continue
-            for region in [r.strip() for r in os.getenv("AWS_REGIONS", "us-east-1").split(',') if r.strip()]:
-                eks_client = session.client('eks', region_name=region)
-                list_futures.append(executor.submit(eks_client.list_clusters))
-
-        for future in as_completed(list_futures):
-            try:
-                # This is complex because we need to trace back which account/region the result is from.
-                # A more robust solution would wrap the submit call in a way that preserves context.
-                # For now, we rely on the describe call to get the full ARN.
-                pass # This part is tricky. A simpler model is to describe immediately.
-            except Exception as e:
-                 errors.append(f"Error listing clusters: {e}")
-    
     # Simplified, more robust concurrent model
     all_clusters_raw, errors = [], []
     with ThreadPoolExecutor(max_workers=30) as executor:
