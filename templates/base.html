@@ -90,7 +90,8 @@
             const lastRefreshedTime = new Date("{{ request.state.now.isoformat() if request.state.now else '' }}");
             const lastRefreshedSpan = document.getElementById('last-refreshed-time');
             if (lastRefreshedSpan && lastRefreshedTime.valueOf()) {
-                lastRefreshedSpan.textContent = `Data as of: ${lastRefreshedTime.toLocaleTimeString()}`;
+                // MODIFICATION: Changed "Data as of:" to "Last Updated:"
+                lastRefreshedSpan.textContent = `Last Updated: ${lastRefreshedTime.toLocaleTimeString()}`;
                 lastRefreshedSpan.title = `Data loaded at ${lastRefreshedTime.toISOString()}`;
             }
 

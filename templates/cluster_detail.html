@@ -6,20 +6,16 @@
 {% block head_extra %}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <!-- Vis Network for workload graph -->
-    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-    <link href="https://unpkg.com/vis-network/styles/vis-network.min.css" rel="stylesheet" type="text/css" />
 
     <!-- Page-specific styles -->
     <style>
         .widget-content[style*="padding: 0"] .table-container {
             border-top: none; border-radius: 0 0 var(--border-radius) var(--border-radius);
-            max-height: 60vh;
+            max-height: 70vh; /* Increased height for better browsing */
         }
         .log-status-list { list-style-type: none; padding: 0; margin: 0; }
         .log-status-item { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color); }
         .log-status-item:last-child { border-bottom: none; }
-        .log-name { font-weight: 500; }
         .no-data-message { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; min-height: 250px; text-align: center; color: var(--text-secondary); }
         .no-data-message p { margin: 0.25rem 0; }
         
@@ -35,81 +31,6 @@
             text-align: left;
         }
 
-        /* Vis.js Navigation Buttons */
-        .vis-navigation .vis-button { width: 32px !important; height: 32px !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 20px !important; font-weight: bold; color: var(--text-primary) !important; background-color: var(--surface-color) !important; border: 1px solid var(--border-color) !important; border-radius: 6px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important; transition: all 0.2s ease-in-out; }
-        .vis-navigation .vis-button:hover { background-color: var(--bg-color) !important; border-color: var(--primary-color) !important; transform: translateY(-1px); }
-        .vis-navigation .vis-button::before { line-height: 1; }
-        .vis-navigation .vis-button.vis-zoomIn::before { content: '+' !important; }
-        .vis-navigation .vis-button.vis-zoomOut::before { content: '−' !important; }
-        .vis-navigation .vis-button.vis-zoomExtends::before { content: '⤧' !important; }
-
-        /* Workload UI styles */
-        .workload-controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem;
-            background-color: var(--surface-color);
-            border: 1px solid var(--border-color);
-            border-bottom: none;
-            border-radius: var(--border-radius) var(--border-radius) 0 0;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-        .workload-filters { display: flex; gap: 0.5rem; }
-        .workload-filter-btn {
-            background-color: var(--bg-color);
-            border: 1px solid var(--border-color);
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: var(--text-secondary);
-        }
-        .workload-filter-btn:hover { background-color: var(--border-color); color: var(--text-primary); }
-        .workload-filter-btn.active {
-            background-color: var(--primary-color);
-            color: white;
-            border-color: var(--primary-color);
-        }
-        .filter-count {
-            background-color: rgba(0,0,0,0.1);
-            color: inherit;
-            font-size: 0.8em;
-            font-weight: 600;
-            padding: 2px 8px;
-            border-radius: 10px;
-        }
-        #secondary-filter-container { display: flex; gap: 1rem; flex-wrap: wrap;}
-        #secondary-filter-container input, #secondary-filter-container select { min-width: 200px; }
-
-        .workload-list-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1.25rem 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-        .workload-list-item:hover { background-color: var(--bg-color); }
-        .workload-list-item.selected {
-            background-color: var(--primary-color-light);
-            border-left: 4px solid var(--primary-color);
-            padding-left: calc(1.5rem - 4px);
-        }
-        .workload-list-item:last-child { border-bottom: none; }
-        
-        .item-main .item-name { font-weight: 600; color: var(--text-primary); margin-bottom: 0.25rem; }
-        .item-main .item-namespace { font-size: 0.85rem; color: var(--text-secondary); }
-        .item-status { display: flex; gap: 0.75rem; align-items: center; }
-        .item-status .status-badge { font-size: 0.8rem; padding: 0.3rem 0.75rem; font-weight: 500; }
-        .status-badge.status-warning { background-color: #fff3cd; color: #664d03;}
-
         /* Resources Tab styles */
         .resources-container { display: flex; height: 80vh; border: 1px solid var(--border-color); border-radius: var(--border-radius); background-color: var(--surface-color); overflow: hidden; }
         .resource-types-pane { width: 240px; border-right: 1px solid var(--border-color); background-color: var(--bg-color); padding: 1rem; overflow-y: auto; flex-shrink: 0; }
@@ -122,11 +43,12 @@
         .resource-details-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         .resource-table-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
         .resource-table-header h3 { margin: 0; }
-        .resource-filters { display: flex; gap: 1rem; }
+        .resource-filters { display: flex; gap: 1rem; align-items: center; }
         .resource-details-pane .table-container { flex: 1; overflow-y: auto; border: none; }
         .resource-details-pane .data-table { width: 100%; }
         #resource-table-body tr { cursor: pointer; }
         #resource-table-body tr:hover { background-color: var(--bg-color); }
+        .pagination-controls { padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
 
 
         /* Modal Styles */
@@ -156,7 +78,7 @@
             <button class="tab-link active" onclick="openTab(event, 'overview')"><i data-feather="layout"></i>Overview</button>
             <button class="tab-link" onclick="openTab(event, 'compute')"><i data-feather="hard-drive"></i>Compute</button>
             <button class="tab-link" onclick="openTab(event, 'addons')"><i data-feather="box"></i>Add-ons</button>
-            <button class="tab-link" onclick="openTab(event, 'workloads')"><i data-feather="cpu"></i>Workloads</button>
+            <!-- MODIFICATION: "Workloads" tab removed -->
             <button class="tab-link" onclick="openTab(event, 'resources')"><i data-feather="grid"></i>Resources</button>
             <button class="tab-link" onclick="openTab(event, 'observability')"><i data-feather="bar-chart-2"></i>Observability</button>
             <button class="tab-link" onclick="openTab(event, 'insights')"><i data-feather="zap"></i>Analysis & Insights</button>
@@ -165,7 +87,7 @@
         {% include '_cluster_overview.html' %}
         {% include '_cluster_compute.html' %}
         {% include '_cluster_addons.html' %}
-        {% include '_cluster_workloads.html' %}
+        <!-- MODIFICATION: "Workloads" include removed -->
         {% include '_cluster_resources.html' %}
         {% include '_cluster_observability.html' %}
         {% include '_cluster_insights.html' %}
@@ -192,14 +114,17 @@
     const workloadsData = {{ cluster.workloads | tojson | safe if cluster.workloads else 'null' }};
     
     // --- Page State Variables ---
-    let workloadsTabInitialized = false;
     let resourcesTabInitialized = false;
-    let visNetwork, visNodes, visEdges;
     let activeTab = 'overview';
     let metricCharts = {};
     let metricsLoaded = false;
-    let activeWorkloadFilter = 'pod';
     let activeResourceType = 'pod';
+    
+    let resourcePagination = {
+        currentPage: 1,
+        itemsPerPage: 10,
+        filteredData: []
+    };
 
     function openTab(evt, tabName) {
         activeTab = tabName;
@@ -208,10 +133,8 @@
         document.getElementById(tabName).style.display = 'block';
         evt.currentTarget.classList.add('active');
 
-        if (tabName === 'workloads' && !workloadsTabInitialized) {
-            initializeWorkloadsTab();
-            workloadsTabInitialized = true;
-        } else if (tabName === 'resources' && !resourcesTabInitialized) {
+        // MODIFICATION: Removed logic for 'workloads' tab
+        if (tabName === 'resources' && !resourcesTabInitialized) {
             initializeResourcesTab();
             resourcesTabInitialized = true;
         } else if (tabName === 'observability' && !metricsLoaded) {
@@ -223,9 +146,9 @@
     // --- START: RESOURCES TAB LOGIC ---
     const resourceDefinitions = {
         pod: {
-            dataKey: 'pods', title: 'Pods', hasNamespace: true,
+            dataKey: 'pods', title: 'Pods', hasNamespace: true, hasNodeFilter: true,
             columns: ['Name', 'Namespace', 'Status', 'Restarts', 'Node', 'Age'],
-            render: p => `<tr data-name="${p.metadata.name.toLowerCase()}" data-namespace="${p.metadata.namespace}">
+            render: p => `<tr data-name="${p.metadata.name}" data-namespace="${p.metadata.namespace}" data-nodename="${p.spec.nodeName || ''}">
                             <td>${p.metadata.name}</td>
                             <td>${p.metadata.namespace}</td>
                             <td><span class="status-badge status-${p.status.phase.toLowerCase()}">${p.status.phase}</span></td>
@@ -237,7 +160,7 @@
         deployment: {
             dataKey: 'deployments', title: 'Deployments', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Ready', 'Up-to-date', 'Available', 'Age'],
-            render: d => `<tr data-name="${d.metadata.name.toLowerCase()}" data-namespace="${d.metadata.namespace}">
+            render: d => `<tr data-name="${d.metadata.name}" data-namespace="${d.metadata.namespace}">
                             <td>${d.metadata.name}</td>
                             <td>${d.metadata.namespace}</td>
                             <td>${d.status.readyReplicas || 0}/${d.spec.replicas}</td>
@@ -249,7 +172,7 @@
         replica_set: {
             dataKey: 'replica_sets', title: 'ReplicaSets', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Ready', 'Desired', 'Current', 'Age'],
-            render: r => `<tr data-name="${r.metadata.name.toLowerCase()}" data-namespace="${r.metadata.namespace}">
+            render: r => `<tr data-name="${r.metadata.name}" data-namespace="${r.metadata.namespace}">
                             <td>${r.metadata.name}</td>
                             <td>${r.metadata.namespace}</td>
                             <td>${r.status.readyReplicas || 0}</td>
@@ -261,7 +184,7 @@
         daemon_set: {
             dataKey: 'daemon_sets', title: 'DaemonSets', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Desired', 'Current', 'Ready', 'Up-to-date', 'Available', 'Age'],
-            render: d => `<tr data-name="${d.metadata.name.toLowerCase()}" data-namespace="${d.metadata.namespace}">
+            render: d => `<tr data-name="${d.metadata.name}" data-namespace="${d.metadata.namespace}">
                             <td>${d.metadata.name}</td>
                             <td>${d.metadata.namespace}</td>
                             <td>${d.status.desiredNumberScheduled}</td>
@@ -275,7 +198,7 @@
         stateful_set: {
             dataKey: 'stateful_sets', title: 'StatefulSets', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Ready', 'Age'],
-            render: s => `<tr data-name="${s.metadata.name.toLowerCase()}" data-namespace="${s.metadata.namespace}">
+            render: s => `<tr data-name="${s.metadata.name}" data-namespace="${s.metadata.namespace}">
                             <td>${s.metadata.name}</td>
                             <td>${s.metadata.namespace}</td>
                             <td>${s.status.readyReplicas || 0}/${s.spec.replicas}</td>
@@ -288,7 +211,7 @@
             render: j => {
                 const duration = j.status.startTime && j.status.completionTime ? 
                     (new Date(j.status.completionTime) - new Date(j.status.startTime))/1000 + 's' : 'N/A';
-                return `<tr data-name="${j.metadata.name.toLowerCase()}" data-namespace="${j.metadata.namespace}">
+                return `<tr data-name="${j.metadata.name}" data-namespace="${j.metadata.namespace}">
                             <td>${j.metadata.name}</td>
                             <td>${j.metadata.namespace}</td>
                             <td>${j.status.succeeded || 0}/${j.spec.completions || 1}</td>
@@ -300,7 +223,7 @@
         cron_job: {
             dataKey: 'cron_jobs', title: 'CronJobs', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Schedule', 'Suspend', 'Active', 'Last Schedule', 'Age'],
-            render: c => `<tr data-name="${c.metadata.name.toLowerCase()}" data-namespace="${c.metadata.namespace}">
+            render: c => `<tr data-name="${c.metadata.name}" data-namespace="${c.metadata.namespace}">
                             <td>${c.metadata.name}</td>
                             <td>${c.metadata.namespace}</td>
                             <td>${c.spec.schedule}</td>
@@ -313,7 +236,7 @@
         hpa: {
             dataKey: 'hpas', title: 'HorizontalPodAutoscalers', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Reference', 'Min Pods', 'Max Pods', 'Replicas', 'Age'],
-            render: h => `<tr data-name="${h.metadata.name.toLowerCase()}" data-namespace="${h.metadata.namespace}">
+            render: h => `<tr data-name="${h.metadata.name}" data-namespace="${h.metadata.namespace}">
                             <td>${h.metadata.name}</td>
                             <td>${h.metadata.namespace}</td>
                             <td>${h.spec.scaleTargetRef.kind}/${h.spec.scaleTargetRef.name}</td>
@@ -326,7 +249,7 @@
         priority_class: {
             dataKey: 'priority_classes', title: 'PriorityClasses', hasNamespace: false,
             columns: ['Name', 'Value', 'Global Default', 'Age'],
-            render: p => `<tr data-name="${p.metadata.name.toLowerCase()}" data-namespace="">
+            render: p => `<tr data-name="${p.metadata.name}" data-namespace="">
                             <td>${p.metadata.name}</td>
                             <td>${p.value}</td>
                             <td>${p.globalDefault || false}</td>
@@ -340,7 +263,7 @@
                 const readyCond = n.status.conditions.find(c => c.type === 'Ready');
                 const status = readyCond ? (readyCond.status === 'True' ? 'Ready' : 'NotReady') : 'Unknown';
                 const roles = Object.keys(n.metadata.labels).filter(l => l.startsWith('node-role.kubernetes.io')).map(l => l.split('/')[1]).join(', ') || '<none>';
-                return `<tr data-name="${n.metadata.name.toLowerCase()}" data-namespace="">
+                return `<tr data-name="${n.metadata.name}" data-namespace="">
                             <td>${n.metadata.name}</td>
                             <td><span class="status-badge status-${status.toLowerCase()}">${status}</span></td>
                             <td>${roles}</td>
@@ -353,7 +276,7 @@
         service: {
             dataKey: 'services', title: 'Services', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Type', 'Cluster IP', 'External IP', 'Ports', 'Age'],
-            render: s => `<tr data-name="${s.metadata.name.toLowerCase()}" data-namespace="${s.metadata.namespace}">
+            render: s => `<tr data-name="${s.metadata.name}" data-namespace="${s.metadata.namespace}">
                             <td>${s.metadata.name}</td>
                             <td>${s.metadata.namespace}</td>
                             <td>${s.spec.type}</td>
@@ -368,7 +291,7 @@
             columns: ['Name', 'Namespace', 'Endpoints', 'Age'],
             render: e => {
                 const endpointsStr = (e.subsets || []).flatMap(s => s.addresses || []).map(a => a.ip).join(', ');
-                return `<tr data-name="${e.metadata.name.toLowerCase()}" data-namespace="${e.metadata.namespace}">
+                return `<tr data-name="${e.metadata.name}" data-namespace="${e.metadata.namespace}">
                             <td>${e.metadata.name}</td>
                             <td>${e.metadata.namespace}</td>
                             <td>${endpointsStr.substring(0, 100)}${endpointsStr.length > 100 ? '...' : ''}</td>
@@ -379,7 +302,7 @@
         ingress: {
             dataKey: 'ingresses', title: 'Ingresses', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Class', 'Hosts', 'Address', 'Ports', 'Age'],
-            render: i => `<tr data-name="${i.metadata.name.toLowerCase()}" data-namespace="${i.metadata.namespace}">
+            render: i => `<tr data-name="${i.metadata.name}" data-namespace="${i.metadata.namespace}">
                             <td>${i.metadata.name}</td>
                             <td>${i.metadata.namespace}</td>
                             <td>${i.spec.ingressClassName || '<none>'}</td>
@@ -392,7 +315,7 @@
         config_map: {
             dataKey: 'config_maps', title: 'ConfigMaps', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Data Keys', 'Age'],
-            render: cm => `<tr data-name="${cm.metadata.name.toLowerCase()}" data-namespace="${cm.metadata.namespace}">
+            render: cm => `<tr data-name="${cm.metadata.name}" data-namespace="${cm.metadata.namespace}">
                             <td>${cm.metadata.name}</td>
                             <td>${cm.metadata.namespace}</td>
                             <td>${cm.data ? Object.keys(cm.data).length : 0}</td>
@@ -402,7 +325,7 @@
         secret: {
             dataKey: 'secrets', title: 'Secrets', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Type', 'Age'],
-            render: s => `<tr data-name="${s.metadata.name.toLowerCase()}" data-namespace="${s.metadata.namespace}">
+            render: s => `<tr data-name="${s.metadata.name}" data-namespace="${s.metadata.namespace}">
                             <td>${s.metadata.name}</td>
                             <td>${s.metadata.namespace}</td>
                             <td>${s.type}</td>
@@ -412,7 +335,7 @@
         persistent_volume_claim: {
             dataKey: 'persistent_volume_claims', title: 'PersistentVolumeClaims', hasNamespace: true,
             columns: ['Name', 'Namespace', 'Status', 'Volume', 'Capacity', 'Access Modes', 'Storage Class', 'Age'],
-            render: pvc => `<tr data-name="${pvc.metadata.name.toLowerCase()}" data-namespace="${pvc.metadata.namespace}">
+            render: pvc => `<tr data-name="${pvc.metadata.name}" data-namespace="${pvc.metadata.namespace}">
                             <td>${pvc.metadata.name}</td>
                             <td>${pvc.metadata.namespace}</td>
                             <td>${pvc.status.phase}</td>
@@ -426,7 +349,7 @@
         persistent_volume: {
             dataKey: 'persistent_volumes', title: 'PersistentVolumes', hasNamespace: false,
             columns: ['Name', 'Capacity', 'Access Modes', 'Reclaim Policy', 'Status', 'Claim', 'Storage Class', 'Age'],
-            render: pv => `<tr data-name="${pv.metadata.name.toLowerCase()}" data-namespace="">
+            render: pv => `<tr data-name="${pv.metadata.name}" data-namespace="">
                             <td>${pv.metadata.name}</td>
                             <td>${pv.spec.capacity?.storage || ''}</td>
                             <td>${(pv.spec.accessModes || []).join(', ')}</td>
@@ -440,7 +363,7 @@
         storage_class: {
             dataKey: 'storage_classes', title: 'StorageClasses', hasNamespace: false,
             columns: ['Name', 'Provisioner', 'Reclaim Policy', 'Volume Binding Mode', 'Age'],
-            render: sc => `<tr data-name="${sc.metadata.name.toLowerCase()}" data-namespace="">
+            render: sc => `<tr data-name="${sc.metadata.name}" data-namespace="">
                             <td>${sc.metadata.name}</td>
                             <td>${sc.provisioner}</td>
                             <td>${sc.reclaimPolicy}</td>
@@ -453,7 +376,7 @@
             columns: ['Name', 'Drivers', 'Age'],
             render: csi => {
                 const drivers = (csi.spec.drivers || []).map(d => d.name).join(', ');
-                return `<tr data-name="${csi.metadata.name.toLowerCase()}" data-namespace="">
+                return `<tr data-name="${csi.metadata.name}" data-namespace="">
                             <td>${csi.metadata.name}</td>
                             <td>${drivers}</td>
                             <td>${csi.age || 'N/A'}</td>
@@ -463,7 +386,7 @@
         csi_driver: {
             dataKey: 'csi_drivers', title: 'CSIDrivers', hasNamespace: false,
             columns: ['Name', 'Attach Required', 'Pod Info on Mount', 'Age'],
-            render: csi => `<tr data-name="${csi.metadata.name.toLowerCase()}" data-namespace="">
+            render: csi => `<tr data-name="${csi.metadata.name}" data-namespace="">
                             <td>${csi.metadata.name}</td>
                             <td>${csi.spec.attachRequired}</td>
                             <td>${csi.spec.podInfoOnMount}</td>
@@ -481,384 +404,141 @@
                 document.querySelectorAll('.resource-nav-link').forEach(l => l.classList.remove('active'));
                 e.target.classList.add('active');
                 activeResourceType = e.target.dataset.resource;
-                renderResourceTable(activeResourceType);
+                switchResourceType(activeResourceType);
             });
         });
         
-        document.getElementById('resource-namespace-filter').addEventListener('change', applyResourceFilters);
-        document.getElementById('resource-name-filter').addEventListener('input', applyResourceFilters);
+        document.getElementById('resource-namespace-filter').addEventListener('change', applyResourceFiltersAndRender);
+        document.getElementById('resource-name-filter').addEventListener('input', applyResourceFiltersAndRender);
+        document.getElementById('resource-node-filter').addEventListener('change', applyResourceFiltersAndRender);
         
         const body = document.getElementById('resource-table-body');
         body.addEventListener('click', (e) => {
             const row = e.target.closest('tr');
             if (!row || !row.dataset.name) return;
             
-            const config = resourceDefinitions[activeResourceType];
             const name = row.dataset.name;
             const namespace = row.dataset.namespace;
             
-            const allItems = workloadsData[config.dataKey] || [];
-            
-            const resourceData = allItems.find(item => {
-                const nameMatch = item.metadata.name.toLowerCase() === name;
-                const nsMatch = !config.hasNamespace || (item.metadata.namespace === namespace);
+            const resourceData = resourcePagination.filteredData.find(item => {
+                const nameMatch = item.metadata.name === name;
+                const nsMatch = !namespace || (item.metadata.namespace === namespace);
                 return nameMatch && nsMatch;
             });
             
             if (resourceData) {
                 const modal = document.getElementById('resource-modal');
-                document.getElementById('modal-title').textContent = `${config.title.slice(0, -1)}: ${resourceData.metadata.name}`;
+                document.getElementById('modal-title').textContent = `${resourceDefinitions[activeResourceType].title.slice(0, -1)}: ${resourceData.metadata.name}`;
                 document.getElementById('modal-body-content').textContent = JSON.stringify(resourceData, null, 2);
                 modal.classList.add('visible');
                 feather.replace();
             }
         });
+        
+        document.getElementById('pagination-prev').addEventListener('click', () => {
+            if (resourcePagination.currentPage > 1) {
+                resourcePagination.currentPage--;
+                renderResourceTablePage();
+            }
+        });
+        document.getElementById('pagination-next').addEventListener('click', () => {
+            const totalPages = Math.ceil(resourcePagination.filteredData.length / resourcePagination.itemsPerPage);
+            if (resourcePagination.currentPage < totalPages) {
+                resourcePagination.currentPage++;
+                renderResourceTablePage();
+            }
+        });
 
-        renderResourceTable(activeResourceType);
+        switchResourceType(activeResourceType);
     }
-
-    function renderResourceTable(resourceType) {
+    
+    function switchResourceType(resourceType) {
         const config = resourceDefinitions[resourceType];
         if (!config) { console.error("Unknown resource type:", resourceType); return; }
-
-        const data = workloadsData[config.dataKey] || [];
 
         document.getElementById('resource-title').textContent = config.title;
 
         const head = document.getElementById('resource-table-head');
         head.innerHTML = `<tr><th>${config.columns.join('</th><th>')}</th></tr>`;
         
-        const body = document.getElementById('resource-table-body');
-        body.innerHTML = data.map(config.render).join('');
-
         const nsFilter = document.getElementById('resource-namespace-filter');
         const nameFilter = document.getElementById('resource-name-filter');
+        const nodeFilter = document.getElementById('resource-node-filter');
+        
+        const allData = workloadsData[config.dataKey] || [];
+        
         if (config.hasNamespace) {
-            const namespaces = ['all', ...new Set(data.map(item => item.metadata.namespace))].sort();
+            const namespaces = ['all', ...new Set(allData.map(item => item.metadata.namespace))].sort();
             nsFilter.innerHTML = namespaces.map(ns => `<option value="${ns}">${ns === 'all' ? 'All Namespaces' : ns}</option>`).join('');
-            nsFilter.style.display = 'block';
+            nsFilter.style.display = 'inline-block';
         } else {
             nsFilter.style.display = 'none';
         }
         
+        if (config.hasNodeFilter) {
+            const nodes = ['all', ...new Set((workloadsData.nodes || []).map(n => n.metadata.name))].sort();
+            nodeFilter.innerHTML = nodes.map(node => `<option value="${node}">${node === 'all' ? 'All Nodes' : node}</option>`).join('');
+            nodeFilter.style.display = 'inline-block';
+        } else {
+            nodeFilter.style.display = 'none';
+        }
+        
         nsFilter.value = 'all';
         nameFilter.value = '';
-        applyResourceFilters();
+        nodeFilter.value = 'all';
+        
+        applyResourceFiltersAndRender();
     }
     
-    function applyResourceFilters() {
+    function applyResourceFiltersAndRender() {
         const config = resourceDefinitions[activeResourceType];
+        const allData = workloadsData[config.dataKey] || [];
+        
         const nsValue = document.getElementById('resource-namespace-filter').value;
         const nameValue = document.getElementById('resource-name-filter').value.toLowerCase();
-        const body = document.getElementById('resource-table-body');
-        const rows = body.querySelectorAll('tr');
-        let visibleCount = 0;
+        const nodeValue = document.getElementById('resource-node-filter').value;
 
-        rows.forEach(row => {
-            const rowNs = row.dataset.namespace;
-            const rowName = row.dataset.name;
-
-            const nsMatch = !config.hasNamespace || (nsValue === 'all') || (rowNs === nsValue);
-            const nameMatch = rowName.includes(nameValue);
-
-            if (nsMatch && nameMatch) {
-                row.style.display = '';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
+        resourcePagination.filteredData = allData.filter(item => {
+            const nameMatch = item.metadata.name.toLowerCase().includes(nameValue);
+            const nsMatch = !config.hasNamespace || nsValue === 'all' || item.metadata.namespace === nsValue;
+            const nodeMatch = !config.hasNodeFilter || nodeValue === 'all' || (item.spec && item.spec.nodeName === nodeValue);
+            return nameMatch && nsMatch && nodeMatch;
         });
+        
+        resourcePagination.currentPage = 1;
+        renderResourceTablePage();
+    }
 
-        document.getElementById('resource-table-empty').style.display = visibleCount === 0 ? 'flex' : 'none';
-        body.parentElement.parentElement.style.display = visibleCount > 0 ? 'block' : 'none';
+    function renderResourceTablePage() {
+        const { currentPage, itemsPerPage, filteredData } = resourcePagination;
+        const config = resourceDefinitions[activeResourceType];
+        
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+        const pageData = filteredData.slice(start, end);
+        
+        const body = document.getElementById('resource-table-body');
+        body.innerHTML = pageData.map(config.render).join('');
+        
+        const tableContainer = document.querySelector('#resources .table-container');
+        const emptyMessage = document.getElementById('resource-table-empty');
+        const paginationControls = document.getElementById('pagination-controls');
+
+        const hasData = filteredData.length > 0;
+        tableContainer.style.display = hasData ? 'block' : 'none';
+        paginationControls.style.display = hasData ? 'flex' : 'none';
+        emptyMessage.style.display = hasData ? 'none' : 'flex';
+
+        if (hasData) {
+            const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+            document.getElementById('pagination-info').textContent = `Page ${currentPage} of ${totalPages} (${filteredData.length} items)`;
+            document.getElementById('pagination-prev').disabled = currentPage === 1;
+            document.getElementById('pagination-next').disabled = currentPage === totalPages;
+        }
     }
 
     // --- END: RESOURCES TAB LOGIC ---
 
-
-    // --- Workload UI Logic (Graph View) ---
-    function initializeWorkloadsTab() {
-        if (!workloadsData || workloadsData.error) {
-            document.getElementById('workload-list-container').innerHTML = '<div class="no-data-message"><p>Could not load workload data.</p></div>';
-            return;
-        }
-        
-        const namespaces = [...new Set(workloadsData.pods.map(p => p.metadata.namespace))];
-        document.getElementById('ns-count').textContent = namespaces.length;
-        document.getElementById('dep-count').textContent = workloadsData.deployments.length;
-        document.getElementById('pod-count').textContent = workloadsData.pods.length;
-        
-        document.querySelectorAll('.workload-filter-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                document.querySelectorAll('.workload-filter-btn').forEach(b => b.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-                activeWorkloadFilter = e.currentTarget.dataset.type;
-                renderResourceList();
-                resetHighlightAndPanel();
-            });
-        });
-
-        renderResourceList();
-        renderWorkloadGraph();
-    }
-
-    function renderResourceList() {
-        const listContainer = document.getElementById('workload-list-container');
-        let listHTML = '';
-        let secondaryFilterHTML = '';
-        const namespaces = [...new Set(workloadsData.pods.map(p => p.metadata.namespace))].sort();
-        const nsOptions = namespaces.map(ns => `<option value="${ns}">${ns}</option>`).join('');
-
-        switch(activeWorkloadFilter) {
-            case 'namespace':
-                listHTML = namespaces.map(ns => `
-                    <div class="workload-list-item" data-kind="Namespace" data-name="${ns.toLowerCase()}" data-namespace="${ns}">
-                        <div class="item-main"><div class="item-name">${ns}</div></div>
-                    </div>`).join('');
-                secondaryFilterHTML = `<input type="text" id="workload-text-filter" class="form-input" placeholder="Filter by name...">`;
-                break;
-            
-            case 'deployment':
-                listHTML = workloadsData.deployments.map(dep => `
-                    <div class="workload-list-item" data-kind="Deployment" data-uid="${dep.metadata.uid}" data-name="${dep.metadata.name.toLowerCase()}" data-namespace="${dep.metadata.namespace}">
-                        <div class="item-main"><div class="item-name">${dep.metadata.name}</div><div class="item-namespace">${dep.metadata.namespace}</div></div>
-                        <div class="item-status"><span class="status-badge status-${dep.status && dep.status.readyReplicas === dep.spec.replicas ? 'active' : 'updating'}">${(dep.status.readyReplicas || 0)}/${dep.spec.replicas} Ready</span></div>
-                    </div>`).join('');
-                secondaryFilterHTML = `
-                    <input type="text" id="workload-text-filter" class="form-input" placeholder="Filter by name...">
-                    <select id="workload-namespace-filter" class="form-select"><option value="all">All Namespaces</option>${nsOptions}</select>`;
-                break;
-            
-            case 'pod':
-                listHTML = workloadsData.pods.map(pod => `
-                    <div class="workload-list-item" data-kind="Pod" data-uid="${pod.metadata.uid}" data-name="${pod.metadata.name.toLowerCase()}" data-status="${pod.status.phase}" data-namespace="${pod.metadata.namespace}">
-                        <div class="item-main"><div class="item-name">${pod.metadata.name}</div><div class="item-namespace">${pod.metadata.namespace}</div></div>
-                        <div class="item-status"><span class="status-badge status-${pod.status.phase.toLowerCase()}">${pod.status.phase}</span><span class="status-badge status-warning">Restarts: ${pod.restarts}</span></div>
-                    </div>`).join('');
-                secondaryFilterHTML = `
-                    <input type="text" id="workload-text-filter" class="form-input" placeholder="Filter by name...">
-                    <select id="workload-namespace-filter" class="form-select"><option value="all">All Namespaces</option>${nsOptions}</select>
-                    <select id="workload-status-filter" class="form-select"><option value="all">All Statuses</option><option value="Running">Running</option><option value="Pending">Pending</option><option value="Succeeded">Succeeded</option><option value="Failed">Failed</option><option value="Unknown">Unknown</option></select>`;
-                break;
-        }
-        
-        listContainer.innerHTML = listHTML || '<div class="no-data-message"><p>No resources found.</p></div>';
-        document.getElementById('secondary-filter-container').innerHTML = secondaryFilterHTML;
-        addListItemListeners();
-        addSecondaryFilterListeners();
-    }
-
-    function addListItemListeners() {
-        document.querySelectorAll('.workload-list-item').forEach(item => {
-            item.addEventListener('click', () => {
-                document.querySelectorAll('.workload-list-item').forEach(i => i.classList.remove('selected'));
-                item.classList.add('selected');
-
-                const kind = item.dataset.kind;
-                const uid = item.dataset.uid;
-                let resourceData;
-
-                if (uid && visNodes && visNodes.get(uid)) {
-                    highlightNodeAndConnections(uid);
-                    visNetwork.focus(uid, { scale: 1.5, animation: true });
-                } else {
-                    resetHighlightAndPanel();
-                }
-
-                switch(kind) {
-                    case 'Deployment': resourceData = workloadsData.deployments.find(d => d.metadata.uid === uid); break;
-                    case 'Pod': resourceData = workloadsData.pods.find(p => p.metadata.uid === uid); break;
-                    case 'Namespace':
-                         const nsName = item.querySelector('.item-name').textContent;
-                         resourceData = { name: nsName, summary: {
-                                podCount: workloadsData.pods.filter(p => p.metadata.namespace === nsName).length,
-                                deploymentCount: workloadsData.deployments.filter(d => d.metadata.namespace === nsName).length,
-                                serviceCount: workloadsData.services.filter(s => s.metadata.namespace === nsName).length
-                         }};
-                         break;
-                }
-                
-                if (resourceData) {
-                    const modal = document.getElementById('resource-modal');
-                    document.getElementById('modal-title').textContent = `${kind}: ${resourceData.metadata ? resourceData.metadata.name : resourceData.name}`;
-                    document.getElementById('modal-body-content').textContent = JSON.stringify(resourceData, null, 2);
-                    modal.classList.add('visible');
-                    feather.replace();
-                }
-            });
-        });
-    }
-
-    function addSecondaryFilterListeners() {
-        const filters = [
-            document.getElementById('workload-text-filter'),
-            document.getElementById('workload-status-filter'),
-            document.getElementById('workload-namespace-filter')
-        ].filter(el => el);
-
-        const applyFilters = () => {
-            const textValue = document.getElementById('workload-text-filter')?.value.toLowerCase() || '';
-            const statusValue = document.getElementById('workload-status-filter')?.value || 'all';
-            const namespaceValue = document.getElementById('workload-namespace-filter')?.value || 'all';
-            
-            const visibleUids = new Set();
-            const visibleNamespaces = new Set();
-
-            document.querySelectorAll('#workload-list-container .workload-list-item').forEach(item => {
-                const nameMatch = textValue ? item.dataset.name.includes(textValue) : true;
-                const statusMatch = statusValue !== 'all' ? item.dataset.status === statusValue : true;
-                const namespaceMatch = namespaceValue !== 'all' ? item.dataset.namespace === namespaceValue : true;
-                
-                const isVisible = nameMatch && statusMatch && namespaceMatch;
-                item.style.display = isVisible ? 'flex' : 'none';
-                if (isVisible) {
-                    if (item.dataset.uid) visibleUids.add(item.dataset.uid);
-                    if (item.dataset.kind === 'Namespace') visibleNamespaces.add(item.dataset.namespace);
-                }
-            });
-            
-            filterMap(visibleUids, visibleNamespaces);
-        };
-        filters.forEach(el => el.addEventListener('input', applyFilters));
-    }
-
-    function filterMap(visibleUids, visibleNamespaces) {
-        if (!visNetwork || !visNodes) return;
-        const nodeUpdates = [];
-        visNodes.getIds().forEach(nodeId => {
-            const mapNode = workloadsData.map_nodes.find(n => n.id === nodeId);
-            if (!mapNode) return;
-            
-            const isInfraNode = ['ingress', 'svc', 'node'].includes(mapNode.group);
-            let isVisible = false;
-
-            if (isInfraNode) {
-                isVisible = true; // Always show infra nodes
-            } else if (activeWorkloadFilter === 'namespace') {
-                isVisible = visibleNamespaces.has(mapNode.details.namespace);
-            } else {
-                isVisible = visibleUids.has(nodeId);
-            }
-            nodeUpdates.push({ id: nodeId, hidden: !isVisible });
-        });
-        visNodes.update(nodeUpdates);
-    }
-
-    function renderWorkloadGraph() {
-        const container = document.getElementById('workload-graph');
-        if (!workloadsData || workloadsData.error || !workloadsData.map_nodes || workloadsData.map_nodes.length === 0) {
-            container.innerHTML = '<div class="no-data-message"><p>Could not render workload graph.</p><p>Ensure the cluster is accessible and workload data can be fetched.</p></div>';
-            return;
-        }
-        visNodes = new vis.DataSet(workloadsData.map_nodes);
-        visEdges = new vis.DataSet(workloadsData.map_edges);
-        const data = { nodes: visNodes, edges: visEdges };
-        const options = {
-            nodes: { shape: 'dot', size: 18, font: { size: 14, color: 'var(--text-secondary)' }, borderWidth: 2 },
-            edges: { width: 1.5, color: { color: 'var(--border-color)', highlight: 'var(--primary-color)' }, smooth: { type: 'cubicBezier' }, arrows: { to: { enabled: true, scaleFactor: 0.7 } } },
-            groups: {
-                ingress: { color: { background: '#FD7E14', border: '#ffc799' }, shape: 'diamond' },
-                svc: { color: { background: '#0D6EFD', border: '#a3c7fe' }, shape: 'square' },
-                pod: { color: { background: '#198754', border: '#b3d8c6' }, shape: 'dot' },
-                node: { color: { background: '#6C757D', border: '#cfd2d4' }, shape: 'triangle' },
-            },
-            physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -50, springLength: 250, avoidOverlap: 0.7 } },
-            interaction: { dragNodes: true, dragView: true, hover: true, zoomView: true, tooltipDelay: 200, hideEdgesOnDrag: true, navigationButtons: true },
-            layout: { improvedLayout: true }
-        };
-        visNetwork = new vis.Network(container, data, options);
-        setupGraphInteractions();
-    }
-    
-    function setupGraphInteractions() {
-        const searchInput = document.getElementById('graph-search');
-        visNetwork.on('click', (properties) => {
-            if (properties.nodes.length > 0) {
-                const nodeId = properties.nodes[0];
-                const nodeData = visNodes.get(nodeId);
-                
-                const listItem = document.querySelector(`.workload-list-item[data-uid="${nodeId}"]`);
-                if (listItem) {
-                    listItem.click();
-                } else {
-                    populateInfoPanel(nodeData.details);
-                    highlightNodeAndConnections(nodeId);
-                }
-            } else {
-                resetHighlightAndPanel();
-            }
-        });
-        document.getElementById('graph-info-close').addEventListener('click', resetHighlightAndPanel);
-
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                const searchTerm = e.target.value.toLowerCase();
-                if (!searchTerm) { resetHighlightAndPanel(); return; }
-                const foundNode = workloadsData.map_nodes.find(n => n.label.toLowerCase().includes(searchTerm));
-                if (foundNode) {
-                    visNetwork.focus(foundNode.id, { scale: 1.5, animation: true });
-                    populateInfoPanel(foundNode.details);
-                    highlightNodeAndConnections(foundNode.id);
-                }
-            });
-        }
-    }
-
-    function populateInfoPanel(details) {
-        const panel = document.getElementById('graph-info-panel');
-        if (!panel) return;
-        document.getElementById('info-panel-title').textContent = `${details.kind}: ${details.name}`;
-        let html = '';
-        for (const [key, value] of Object.entries(details)) {
-            if (key === 'kind' || key === 'name') continue;
-            let displayValue = typeof value === 'object' && value !== null ? `<pre class="code" style="font-size: 0.75rem; max-height: 150px; overflow-y: auto;">${JSON.stringify(value, null, 2)}</pre>` : `<span class="code">${value || 'N/A'}</span>`;
-            html += `<strong>${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</strong><div>${displayValue}</div>`;
-        }
-        document.getElementById('info-panel-body').innerHTML = html;
-        panel.classList.add('visible');
-    }
-
-    function highlightNodeAndConnections(nodeId) {
-        if (!visNetwork) return;
-        populateInfoPanel(visNodes.get(nodeId).details);
-        
-        const connectedNodes = visNetwork.getConnectedNodes(nodeId);
-        connectedNodes.push(nodeId);
-
-        const allNodeIds = visNodes.getIds();
-        const allEdgeIds = visEdges.getIds();
-
-        const nodesToUpdate = allNodeIds.map(currentId => ({
-            id: currentId,
-            color: connectedNodes.includes(currentId) ? null : { border: 'rgba(200,200,200,0.2)', background: 'rgba(240,240,240,0.2)' },
-            font: { color: connectedNodes.includes(currentId) ? 'var(--text-secondary)' : 'rgba(200,200,200,0.5)' }
-        }));
-        
-        const edgesToUpdate = allEdgeIds.map(edgeId => {
-            const edge = visEdges.get(edgeId);
-            const isConnected = edge.from === nodeId || edge.to === nodeId;
-            return {
-                id: edgeId,
-                color: isConnected ? null : 'rgba(200,200,200,0.2)'
-            };
-        });
-
-        visNodes.update(nodesToUpdate);
-        visEdges.update(edgesToUpdate);
-    }
-    
-    function resetHighlightAndPanel() {
-        if (visNodes) {
-             visNodes.update(visNodes.getIds().map(id => ({ id, color: null, font: { color: 'var(--text-secondary)' } })));
-        }
-        if (visEdges) {
-            visEdges.update(visEdges.getIds().map(edgeId => ({id: edgeId, color: null})));
-        }
-        const infoPanel = document.getElementById('graph-info-panel');
-        if (infoPanel) infoPanel.classList.remove('visible');
-        document.querySelectorAll('.workload-list-item.selected').forEach(i => i.classList.remove('selected'));
-    }
-    
     // --- Metrics and Charting Functions (COMPLETE & CORRECTED) ---
     function getChartBaseOptions(y1Title = '', y2Title = '') {
         const computedStyle = getComputedStyle(document.documentElement);
@@ -1137,32 +817,6 @@
             modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
         }
         
-        const refreshBtn = document.getElementById('refreshBtn');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', async () => {
-                refreshBtn.disabled = true;
-                refreshBtn.innerHTML = '<i data-feather="loader" class="spin"></i> Refreshing...';
-                feather.replace();
-                try {
-                    const url = `/api/refresh-cluster/${CLUSTER_INFO.accountId}/${CLUSTER_INFO.region}/${CLUSTER_INFO.name}`;
-                    const response = await fetch(url, { method: 'POST' });
-                    if (response.ok) { window.location.reload(); }
-                    else {
-                        const result = await response.json();
-                        alert('Failed to refresh data: ' + (result.error || 'Unknown error'));
-                        refreshBtn.disabled = false;
-                        refreshBtn.innerHTML = '<i data-feather="refresh-cw"></i> Refresh Data';
-                        feather.replace();
-                    }
-                } catch (error) {
-                    alert('An error occurred while trying to refresh data.');
-                    refreshBtn.disabled = false;
-                    refreshBtn.innerHTML = '<i data-feather="refresh-cw"></i> Refresh Data';
-                    feather.replace();
-                }
-            });
-        }
-
         // JS for Compute Tab Node Filter
         const nodegroupFilter = document.getElementById('nodegroup-filter');
         if (nodegroupFilter) {

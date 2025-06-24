@@ -3,16 +3,14 @@
     <div class="widget">
         <div class="widget-header">
             <h2>Cluster Details</h2>
-            <button id="refreshBtn" class="action-btn" title="Refresh data for this cluster">
-                <i data-feather="refresh-cw"></i> Refresh Data
-            </button>
         </div>
         <div class="widget-content">
-            <div class="summary-grid-large">
-                <div><strong>API server endpoint:</strong> <span class="code">{{ cluster.endpoint or 'N/A' }}</span></div>
-                <div><strong>Cluster IAM role:</strong> <span class="code">{{ cluster.roleArn or 'N/A' }}</span></div>
-                <div><strong>OpenID Connect provider URL:</strong> <span class="code">{{ cluster.oidc_provider_url or 'Not available' }}</span></div>
-                <div><strong>Cluster ARN:</strong> <span class="code">{{ cluster.arn }}</span></div>
+            <!-- MODIFICATION: Replaced summary-grid-large with a more structured info-grid -->
+            <div class="info-grid">
+                <strong>API server endpoint</strong> <span class="code">{{ cluster.endpoint or 'N/A' }}</span>
+                <strong>Cluster IAM role</strong> <span class="code">{{ cluster.roleArn or 'N/A' }}</span>
+                <strong>OpenID Connect provider</strong> <span class="code">{{ cluster.oidc_provider_url or 'Not available' }}</span>
+                <strong>Cluster ARN</strong> <span class="code">{{ cluster.arn }}</span>
             </div>
         </div>
     </div>
@@ -21,7 +19,6 @@
         <div class="widget">
             <div class="widget-header"><h2>Cluster Info</h2></div>
             <div class="widget-content">
-                <!-- MODIFICATION START: Added info-grid for better layout -->
                 <div class="info-grid">
                     <strong>Status</strong><span class="status-badge status-{{ cluster.status.lower() if cluster.status else 'unknown' }}">{{ cluster.status }}</span>
                     <strong>K8s Version</strong><span>{{ cluster.version }}</span>
@@ -30,7 +27,6 @@
                     <strong>Account ID</strong><span>{{ cluster.account_id }}</span>
                     <strong>Region</strong><span>{{ cluster.region }}</span>
                 </div>
-                <!-- MODIFICATION END -->
             </div>
         </div>
         <div class="widget">

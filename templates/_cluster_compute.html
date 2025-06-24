@@ -21,20 +21,28 @@
                     <tbody>
                         {% if cluster.workloads and cluster.workloads.nodes %}
                             {% for node in cluster.workloads.nodes %}
-                                <!-- MODIFICATION START: Use .get() for safe label access -->
-                                {% set nodegroup_name = node.metadata.labels.get('eks.amazonaws.com/nodegroup') %}
-                                {% set is_karpenter = 'karpenter.sh/provisioner-name' in node.metadata.labels %}
-                                <!-- MODIFICATION END -->
-                                {% set compute_type = 'Karpenter' if is_karpenter else (nodegroup_name or 'EC2') %}
+                                <!-- MODIFICATION START: Robust compute type identification -->
+                                {% set labels = node.metadata.labels or {} %}
+                                {% set nodegroup_name = labels.get('eks.amazonaws.com/nodegroup') %}
+                                {% set is_karpenter_or_auto = 'karpenter.sh/provisioner-name' in labels or labels.get('eks.amazonaws.com/compute-type') == 'ec2' %}
+                                
+                                {# This value is used by the JS filter and must match the <option> values ('karpenter' for auto-mode) #}
+                                {% set data_nodegroup_value = nodegroup_name if nodegroup_name else 'karpenter' if is_karpenter_or_auto else 'other' %}
+                                
+                                {# This is the user-friendly text displayed in the table cell #}
+                                {% set compute_display_name = nodegroup_name if nodegroup_name else 'Karpenter/Auto-Mode' if is_karpenter_or_auto else 'EC2 (Self-managed)' %}
+                                
                                 {% set node_status_obj = (node.status.conditions | selectattr('type', 'equalto', 'Ready') | list | first) %}
                                 {% set node_status = 'Ready' if node_status_obj and node_status_obj.status == 'True' else 'NotReady' %}
-                                <tr data-nodegroup="{{ nodegroup_name or 'karpenter' if is_karpenter else 'other' }}">
+
+                                <tr data-nodegroup="{{ data_nodegroup_value }}">
                                     <td>{{ node.metadata.name }}</td>
                                     <td><span class="status-badge status-{{ node_status.lower() }}">{{ node_status }}</span></td>
-                                    <td>{{ node.metadata.labels.get('node.kubernetes.io/instance-type', 'N/A') }}</td>
-                                    <td>{{ compute_type }}</td>
+                                    <td>{{ labels.get('node.kubernetes.io/instance-type', 'N/A') }}</td>
+                                    <td>{{ compute_display_name }}</td>
                                     <td>{{ node.metadata.creationTimestamp.split('T')[0] if node.metadata.creationTimestamp else 'N/A' }}</td>
                                 </tr>
+                                <!-- MODIFICATION END -->
                             {% endfor %}
                         {% else %}
                             <tr><td colspan="5" class="text-muted" style="text-align: center; padding: 2rem;">Node data not available. Workload fetching might be disabled or failed.</td></tr>

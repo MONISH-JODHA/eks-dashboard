@@ -58,6 +58,8 @@
             <div class="resource-table-header">
                 <h3 id="resource-title">Pods</h3>
                 <div class="resource-filters">
+                    <!-- MODIFICATION: Added node filter -->
+                    <select id="resource-node-filter" class="form-select" style="display: none;"></select>
                     <select id="resource-namespace-filter" class="form-select"></select>
                     <input type="text" id="resource-name-filter" class="form-input" placeholder="Filter by name">
                 </div>
@@ -67,6 +69,12 @@
                     <thead id="resource-table-head"></thead>
                     <tbody id="resource-table-body"></tbody>
                 </table>
+            </div>
+            <!-- MODIFICATION: Added pagination controls -->
+            <div id="pagination-controls" class="pagination-controls" style="display: none;">
+                 <button id="pagination-prev" class="action-btn">Previous</button>
+                 <span id="pagination-info" class="text-muted"></span>
+                 <button id="pagination-next" class="action-btn">Next</button>
             </div>
              <div id="resource-table-empty" class="no-data-message" style="display: none; padding: 4rem;">
                 <p>No resources found.</p>
